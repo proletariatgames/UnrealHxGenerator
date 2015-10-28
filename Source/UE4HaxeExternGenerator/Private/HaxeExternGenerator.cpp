@@ -19,6 +19,9 @@ class FHaxeExternGenerator : public IHaxeExternGenerator {
 
   /** Name of module that is going to be compiling generated script glue */
   virtual FString GetGeneratedCodeModuleName() const override {
+    UE_LOG(LogHaxeExtern,Log,TEXT("CODE MODULE NAME!"));
+    // return TEXT("UE4HaxeExternGenerator");
+    // return TEXT("CoreUObject");
     return TEXT("HaxeInit");
   }
 
@@ -56,4 +59,4 @@ class FHaxeExternGenerator : public IHaxeExternGenerator {
 
 };
 
-IMPLEMENT_MODULE(FHaxeExternGenerator, HaxeExternGenerator)
+IMPLEMENT_MODULE(FHaxeExternGenerator, UE4HaxeExternGenerator)

@@ -14,7 +14,7 @@
 	"Modules" :
 	[
 		{
-			"Name" : "HaxeExternGenerator",
+			"Name" : "UE4HaxeExternGenerator",
 			"Type" : "Program",
 			"LoadingPhase" : "PostConfigInit"
 		}
