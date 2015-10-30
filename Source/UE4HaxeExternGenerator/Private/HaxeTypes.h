@@ -63,6 +63,8 @@ private:
 
   TMap<UPackage *, FString> m_upackageToModule;
 
+  const static FString nullstring;
+
 public:
   void touchClass(UClass *inClass, const FString &inHeader, const FString &inModule) {
     if (m_classes.Contains(inClass->GetName())) {
@@ -96,15 +98,18 @@ public:
           LOG("UENUM FOUND: %s (declaration %s)", *uenum->GetName(), *prop->GetCPPType(nullptr, CPPF_None));
           this->touchEnum(uenum, cls);
         }
+      } else {
       }
     }
   }
 
-  // add a reference from the class `inClass` to struct `inStruct`
-  // this reference allows us to be sure that we can include a header that includes the definition
-  // to the struct. We need that because the current UHT exporter interface doesn't pass the headers
-  // of structs and enums to us. So we need to ignore structs/enums that we aren't sure to have a header
-  // that has included its entire definition
+  /**
+   * add a reference from the class `inClass` to struct `inStruct`
+   * this reference allows us to be sure that we can include a header that includes the definition
+   * to the struct. We need that because the current UHT exporter interface doesn't pass the headers
+   * of structs and enums to us. So we need to ignore structs/enums that we aren't sure to have a header
+   * that has included its entire definition
+   **/
   void touchStruct(UScriptStruct *inStruct, ClassDescriptor *inClass) {
     UE_LOG(LogHaxeExtern,Log,TEXT("Struct %s dependson %s"), *inStruct->GetName(), *inClass->uclass->GetName());
     UE_LOG(LogHaxeExtern,Log,TEXT("prefix %s"), inStruct->GetPrefixCPP());
@@ -118,7 +123,10 @@ public:
     if (sameModule) UE_LOG(LogHaxeExtern,Log,TEXT("same module"));
   }
 
-  // add a reference from the class `inClass` to enum `inEnum`
+  /**
+   * add a reference from the class `inClass` to enum `inEnum`
+   * @see `touchStruct`
+   **/
   void touchEnum(UEnum *inEnum, ClassDescriptor *inClass) {
     auto name = inEnum->GetName();
     if (!m_enums.Contains(name)) {
@@ -132,6 +140,16 @@ public:
   ///////////////////////////////////////////////////////
   // Haxe Type handling
   ///////////////////////////////////////////////////////
+
+  const FString& toHaxeType(UClass *inClass) {
+    FString name = inClass->GetName();
+    if (!m_classes.Contains(name)) {
+      return nullstring;
+    }
+
+    // auto cls = m_classes[name];
+    return nullstring;
+  }
 
   ~FHaxeTypes() {
     for (auto& elem : m_enums) {
