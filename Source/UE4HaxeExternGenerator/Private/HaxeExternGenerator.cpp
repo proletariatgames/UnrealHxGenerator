@@ -54,6 +54,7 @@ public:
     if (comment != FString())
       UE_LOG(LogHaxeExtern,Log,TEXT("COMMENT %s"), *comment);
     UE_LOG(LogHaxeExtern,Log,TEXT("UPACKAGE %s"),*Class->GetOutermost()->GetName());
+    m_types.touchClass(Class, SourceHeaderFilename, currentModule);
   }
 
   /** Called once all classes have been exported */
