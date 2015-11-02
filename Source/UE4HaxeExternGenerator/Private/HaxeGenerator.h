@@ -27,11 +27,20 @@ struct Escaped {
   }
 };
 
+struct Comment {
+  const FString str;
+  Comment(const FString inStr) : str(inStr)
+  {
+  }
+};
+
 class FHelperBuf {
 private:
   int32 m_indents;
   FString m_indent;
   FString m_buf;
+
+  bool m_hasContent;
 
 public:
   FHelperBuf() {
@@ -42,13 +51,14 @@ public:
   }
 
   FHelperBuf& newline() {
+    this->m_hasContent = false;
     return *this << "\n" << m_indent;
   }
 
   FHelperBuf& begin(const TCHAR *inBr=TEXT("{")) {
     m_indents++;
     m_indent += TEXT("  ");
-    if (*inBr) {
+    if (!*inBr) {
       return *this;
     }
 
@@ -80,7 +90,7 @@ public:
       this->newline();
     }
     if (!right.IsEmpty()) {
-      *this << inText;
+      *this << right;
       if (inAddNewlineAfter) {
         this->newline();
       }
@@ -89,23 +99,38 @@ public:
     return *this;
   }
 
+  FHelperBuf& comment(const FString& inText) {
+    if (m_hasContent) {
+      this->newline();
+    }
+    this->begin(TEXT("/**"));
+    this->addNewlines(inText, false);
+    this->end(TEXT("**/"));
+
+    return *this;
+  }
+
   FHelperBuf& operator <<(const FString& inText) {
     this->m_buf += inText;
+    this->m_hasContent = true;
     return *this;
   }
 
   FHelperBuf& operator <<(const TCHAR *inText) {
     this->m_buf += inText;
+    this->m_hasContent = true;
     return *this;
   }
 
   FHelperBuf& operator <<(const char *inText) {
     this->m_buf += UTF8_TO_TCHAR(inText);
+    this->m_hasContent = true;
     return *this;
   }
 
   FHelperBuf& operator <<(const FHelperBuf &inText) {
     this->m_buf += inText.m_buf;
+    this->m_hasContent = true;
     return *this;
   }
 
@@ -123,6 +148,10 @@ public:
 
   FHelperBuf& operator <<(const Escaped& inEscaped) {
     return this->addEscaped(inEscaped.str);
+  }
+
+  FHelperBuf& operator <<(const Comment& inComment) {
+    return this->comment(inComment.str);
   }
 
   FString toString() {
@@ -181,30 +210,100 @@ public:
 
     UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot determine header path of %s on package %s"), *inPath, *inPack->GetName());
     return FString();
-    // if (inPath.Contains( TEXT("Public"), ESearchCase::IgnoreCase, ESearchDir::FromEnd )) {
-    //   inPath.RightPad( inPath.Find
-    // }
   }
 
   bool convertClass(const ClassDescriptor *inClass) {
-    if (inClass == nullptr) {
-      UE_LOG(LogHaxeExtern,Fatal,TEXT("assert"));
-      return false;
-    }
+    static const FName NAME_ToolTip(TEXT("ToolTip"));
+    auto hxType = inClass->haxeType;
 
-    TArray<FString> pack;
-    inClass->hxName.ParseIntoArray(pack, TEXT("."), true);
-    auto name = pack.Pop( true );
-
-    if (pack.Num() > 0) {
-      m_buf << TEXT("package ") << FString::Join(pack, TEXT(".")) << ";" << Newline() << Newline();
+    if (hxType.pack.Num() > 0) {
+      m_buf << TEXT("package ") << FString::Join(hxType.pack, TEXT(".")) << ";" << Newline() << Newline();
     }
     
+    auto isInterface = hxType.kind == ETypeKind::KUInterface;
+    auto uclass = inClass->uclass;
+    // comment
+    FString comment = uclass->GetMetaData(NAME_ToolTip);
+    if (!comment.IsEmpty()) {
+      m_buf << Comment(comment);
+    }
+    // @:umodule
+    if (!hxType.module.IsEmpty()) {
+      m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
+    }
     // @:glueCppIncludes
     m_buf << TEXT("@:glueCppIncludes(\"") << Escaped(getHeaderPath(inClass->uclass->GetOuterUPackage(), inClass->header)) << TEXT("\")") << Newline();
-    m_buf << TEXT("@:uextern extern class ") << name;
-    LOG("%s", *m_buf.toString());
+    m_buf << TEXT("@:uextern extern ") << (isInterface ? TEXT("interface ") : TEXT("class ")) << hxType.name;
+    if (!isInterface) {
+      auto superUClass = uclass->GetSuperClass();
+      const ClassDescriptor *super = nullptr;
+      if (nullptr != superUClass) {
+        super = m_haxeTypes.getDescriptor(superUClass);
+        m_buf << " extends " << super->haxeType.toString();
+      }
+    }
 
+    const auto implements = isInterface ? TEXT(" extends ") : TEXT(" implements ");
+    // for now it doesn't seem that Unreal supports interfaces that extend other interfaces, but let's make ourselves ready for it
+    for (auto& impl : uclass->Interfaces) {
+      auto ifaceType = m_haxeTypes.getDescriptor(impl.Class);
+      if (ifaceType->haxeType.kind != ETypeKind::KNone) {
+        m_buf << implements << ifaceType->haxeType.toString();
+      }
+    }
+    m_buf << Begin(TEXT(" {"));
+    {
+      // uproperties
+      TFieldIterator<UProperty> props(uclass, EFieldIteratorFlags::ExcludeSuper);
+      for (; props; ++props) {
+        auto prop = *props;
+        auto type = upropType(prop);
+        if (!type.IsEmpty()) {
+          m_buf << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) << prop->GetNameCPP();
+          // TODO see if the property is read-only; this might not be supported by UHT atm?
+          // if (prop->HasAnyPropertyFlags( CPF_Con
+          m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
+        }
+      }
+    }
+    m_buf << End();
+    LOG("%s", *m_buf.toString());
     return true;
+  }
+
+  // Gets the Haxe representation for a `UProperty` type. This is used both for uproperties and for ufunction arguments
+  // Returns an empty string if the type is not supported
+  FString upropType(UProperty* inProp) {
+    // from the most common to the least
+    if (inProp->IsA<UStructProperty>()) {
+      auto prop = Cast<UStructProperty>(inProp);
+      auto descr = m_haxeTypes.getDescriptor( prop->Struct );
+      if (descr == nullptr) {
+        LOG("TYPE NOT SUPPORTED: %s", *prop->Struct->GetName());
+        // may happen if we never used this in a way the struct is known
+        return FString();
+      }
+      // check all the flags that interest us
+      auto ret = FString();
+      auto end = FString();
+      // UStruct pointers aren't supported; so we're left either with PRef, PStruct and Const to check
+      if (prop->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
+        ret += TEXT("unreal.PRef<");
+        end += TEXT(">");
+      } else {
+        ret += TEXT("unreal.PStruct<");
+        end += TEXT(">");
+      }
+      if (prop->HasAnyPropertyFlags(CPF_ConstParm) || (prop->HasAnyPropertyFlags(CPF_ReferenceParm) && !prop->HasAnyPropertyFlags(CPF_OutParm))) {
+        ret += TEXT("unreal.Const<");
+        end += TEXT(">");
+      }
+
+      ret += descr->haxeType.toString() + end;
+      return ret;
+    }
+
+    LOG("Property %s (class %s) not supported", *inProp->GetName(), *inProp->GetClass()->GetName());
+    return FString();
   }
 };

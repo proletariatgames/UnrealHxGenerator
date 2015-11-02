@@ -1,3 +1,3 @@
 #include "HaxeTypes.h"
 
-FString FHaxeTypes::nullstring = FString();
+const FHaxeTypeRef FHaxeTypes::nulltype = FHaxeGenerator("", ETypeKind::KNone);

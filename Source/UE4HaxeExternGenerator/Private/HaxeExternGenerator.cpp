@@ -49,11 +49,7 @@ public:
   /** Exports a single class. May be called multiple times for the same class (as UHT processes the entire hierarchy inside modules. */
   virtual void ExportClass(class UClass* Class, const FString& SourceHeaderFilename, const FString& GeneratedHeaderFilename, bool bHasChanged) override {
     UE_LOG(LogHaxeExtern,Log,TEXT("EXPORT CLASS %s %s %s %s"), *(Class->GetDesc()), *SourceHeaderFilename, *GeneratedHeaderFilename, bHasChanged ? TEXT("CHANGED") : TEXT("NOT CHANGED"));
-    UE_LOG(LogHaxeExtern,Log,TEXT("%s%s (%s)"), Class->GetPrefixCPP(), *Class->GetName(), *Class->GetDescription());
     FString comment = Class->GetMetaData(NAME_ToolTip);
-    if (comment != FString())
-      UE_LOG(LogHaxeExtern,Log,TEXT("COMMENT %s"), *comment);
-    UE_LOG(LogHaxeExtern,Log,TEXT("UPACKAGE %s"),*Class->GetOutermost()->GetName());
     m_types.touchClass(Class, SourceHeaderFilename, currentModule);
   }
 

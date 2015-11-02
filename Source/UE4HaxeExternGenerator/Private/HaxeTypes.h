@@ -4,43 +4,103 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 
 #define LOG(str,...) UE_LOG(LogHaxeExtern, Log, TEXT(str), __VA_ARGS__)
 
-static const FString getHaxePackage(UPackage *pack) {
+enum class ETypeKind {
+  KNone,
+  KUObject,
+  KUInterface,
+  KUStruct,
+  KUEnum,
+  KUDelegate
+};
+
+struct FHaxeTypeRef {
+  const TArray<FString> pack;
+  const FString name;
+  const ETypeKind kind;
+  const FString module;
+
+  FHaxeTypeRef(const TArray<FString> inPack, const FString inName, ETypeKind inKind, const FString inModule) :
+    pack(inPack),
+    name(inName),
+    kind(inKind),
+    module(inModule)
+  {
+  }
+
+  FHaxeTypeRef(const FString inName, ETypeKind inKind) :
+    name(inName),
+    kind(inKind),
+    module(FString())
+  {
+  }
+
+  FString toString() const {
+    if (this->pack.Num() == 0) {
+      return this->name;
+    }
+
+    return FString::Join(this->pack, TEXT(".")) + TEXT(".") + this->name;
+  }
+};
+
+static const TArray<FString> getHaxePackage(UPackage *inPack, FString * outModule) {
   static const TCHAR *CoreUObject = TEXT("/Script/CoreUObject");
   static const TCHAR *Engine = TEXT("/Script/Engine");
   static const TCHAR *UnrealEd = TEXT("/Script/UnrealEd");
-  if (pack->GetName() == CoreUObject || pack->GetName() == Engine) {
-    static const FString ret = FString(TEXT("unreal."));
+  if (inPack->GetName() == CoreUObject || inPack->GetName() == Engine) {
+    static TArray<FString> ret;
+    if (ret.Num() == 0)
+      ret.Push(FString("unreal"));
     return ret;
-  } else if (pack->GetName() == UnrealEd) {
-    static const FString ret = FString(TEXT("unreal.editor."));
+  } else if (inPack->GetName() == UnrealEd) {
+    static TArray<FString> ret;
+    if (ret.Num() == 0) {
+      ret.Push(FString("unreal"));
+      ret.Push(FString("editor"));
+    }
+    *outModule = FString(TEXT("UnrealEd"));
     return ret;
   }
-  return FString::Printf( TEXT("unreal.%s."), *pack->GetName().RightChop( sizeof("/Script") ).ToLower() );
+  *outModule = inPack->GetName().RightChop( sizeof("/Script") );
+  TArray<FString> ret;
+  ret.Push("unreal");
+  ret.Push((*outModule).ToLower());
+  return ret;
 }
 
 struct ClassDescriptor {
   UClass *uclass;
   FString header;
-  const FString hxName;
+  const FHaxeTypeRef haxeType;
 
   ClassDescriptor(UClass *inUClass, const FString &inHeader) :
     uclass(inUClass),
     header(inHeader),
-    hxName(getHxName(inUClass))
+    haxeType(getHaxeType(inUClass))
   {
   }
 
 private:
-  FString getHxName(UClass *inUClass) {
+  FHaxeTypeRef getHaxeType(UClass *inUClass) {
     auto pack = inUClass->GetOuterUPackage();
-    return FString::Printf( TEXT("%s%s%s"), *getHaxePackage(pack), inUClass->GetPrefixCPP(), *inUClass->GetName() );
+    auto prefix = inUClass->GetPrefixCPP();
+    auto isInterface = inUClass->HasAnyClassFlags(CLASS_Interface);
+    if (isInterface) {
+      prefix = TEXT("I");
+    }
+    FString module;
+    return FHaxeTypeRef(
+      getHaxePackage(pack, &module),
+      prefix + inUClass->GetName(),
+      isInterface ? ETypeKind::KUInterface : ETypeKind::KUObject,
+      module);
   }
 };
 
 struct NonClassDescriptor {
   TSet<const ClassDescriptor *> sameModuleRefs;
   TSet<const ClassDescriptor *> otherModuleRefs;
-  const FString hxName;
+  const FHaxeTypeRef haxeType;
 
   bool addRef(const ClassDescriptor *cls) {
     bool unused;
@@ -58,8 +118,8 @@ struct NonClassDescriptor {
 
 protected:
   const UPackage *m_thisPackage;
-  NonClassDescriptor(FString name) : 
-    hxName(name)
+  NonClassDescriptor(FHaxeTypeRef name) : 
+    haxeType(name)
   {
   }
 };
@@ -68,21 +128,21 @@ struct EnumDescriptor : public NonClassDescriptor {
   UEnum *uenum;
 
   EnumDescriptor (UEnum *inUEnum) : 
-    NonClassDescriptor(getHxName(inUEnum)),
+    NonClassDescriptor(getHaxeType(inUEnum)),
     uenum(inUEnum)
   {
     this->m_thisPackage = inUEnum->GetOutermost();
   }
 
 private:
-  static FString getHxName(UEnum *inEnum) {
+  static FHaxeTypeRef getHaxeType(UEnum *inEnum) {
     auto pack = inEnum->GetOutermost();
     auto name = inEnum->CppType;
     TArray<FString> packArr;
     name.ParseIntoArray(packArr, TEXT("::"), true);
     switch (inEnum->GetCppForm()) {
     case UEnum::ECppForm::Namespaced:
-      packArr.Pop(true);
+      packArr.Pop(false);
     default: {}
     }
     if (packArr.Num() > 1) {
@@ -91,7 +151,17 @@ private:
       }
     }
 
-    return FString::Printf( TEXT("%s%s"), *getHaxePackage(pack), *FString::Join(packArr, TEXT(".")) );
+    FString module;
+    auto newPack = TArray<FString>(getHaxePackage(pack, &module));
+    auto hxName = packArr.Pop( false );
+    for (auto& packPart : packArr) {
+      newPack.Push(packPart);
+    }
+    return FHaxeTypeRef(
+      newPack,
+      hxName,
+      ETypeKind::KUEnum,
+      module);
   }
 };
 
@@ -99,16 +169,21 @@ struct StructDescriptor : public NonClassDescriptor {
   UScriptStruct *ustruct;
 
   StructDescriptor(UScriptStruct *inUStruct) :
-    NonClassDescriptor(getHxName(inUStruct)),
+    NonClassDescriptor(getHaxeType(inUStruct)),
     ustruct(inUStruct)
   {
     this->m_thisPackage = inUStruct->GetOutermost();
   }
 
 private:
-  static FString getHxName(UStruct *inStruct) {
+  static FHaxeTypeRef getHaxeType(UStruct *inStruct) {
     auto pack = inStruct->GetOutermost();
-    return FString::Printf( TEXT("%s%s%s"), *getHaxePackage(pack), inStruct->GetPrefixCPP(), *inStruct->GetName() );
+    FString module;
+    return FHaxeTypeRef(
+      getHaxePackage(pack, &module),
+      inStruct->GetPrefixCPP() + inStruct->GetName(),
+      ETypeKind::KUStruct,
+      module);
   }
 };
 
@@ -120,7 +195,7 @@ private:
 
   TMap<UPackage *, FString> m_upackageToModule;
 
-  const static FString nullstring;
+  const static FHaxeTypeRef nulltype;
 
 public:
   void touchClass(UClass *inClass, const FString &inHeader, const FString &inModule) {
@@ -129,7 +204,7 @@ public:
     }
     ClassDescriptor *cls = new ClassDescriptor(inClass, inHeader);
     m_classes.Add(inClass->GetName(), cls);
-    LOG("Class name %s", *cls->hxName);
+    LOG("Class name %s", *cls->haxeType.toString());
     if (!m_upackageToModule.Contains(inClass->GetOuterUPackage())) {
       // UE_LOG(LogHaxeExtern,Log,TEXT("UPACKAGE %s; Module %s"), *inClass->GetOuterUPackage()->GetName(), *inModule);
       m_upackageToModule.Add(inClass->GetOuterUPackage(), inModule);
@@ -145,7 +220,6 @@ public:
         auto structProp = Cast<UStructProperty>(prop);
         // see ObjectBase.h for all possible variations
         if (!structProp->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
-          // UE_LOG(LogHaxeExtern,Log,TEXT("Declaration %s"), *structProp->GetCPPType(nullptr, CPPF_None));
           this->touchStruct(structProp->Struct, cls);
         } else {
           // UE_LOG(LogHaxeExtern,Log,TEXT("Property %s is a pointer/ref"),*structProp->GetName());
@@ -192,7 +266,7 @@ public:
       m_enums.Add(name, new EnumDescriptor(inEnum));
     }
     auto descr = m_enums[name];
-    LOG("Haxe enum name: %s", *descr->hxName);
+    LOG("Haxe enum name: %s", *descr->haxeType.toString());
     descr->addRef(inClass);
     // if (sameModule) LOG("Same module %s", TEXT("YAY"));
   }
@@ -201,34 +275,34 @@ public:
   // Haxe Type handling
   ///////////////////////////////////////////////////////
 
-  const FString& toHaxeType(UClass *inClass) {
+  const FHaxeTypeRef& toHaxeType(UClass *inClass) {
     FString name = inClass->GetName();
     if (!m_classes.Contains(name)) {
-      return nullstring;
+      return nulltype;
     }
 
     auto cls = m_classes[name];
-    return cls->hxName;
+    return cls->haxeType;
   }
 
-  const FString& toHaxeType(UEnum *inEnum) {
+  const FHaxeTypeRef& toHaxeType(UEnum *inEnum) {
     FString name = inEnum->GetName();
     if (!m_enums.Contains(name)) {
-      return nullstring;
+      return nulltype;
     }
 
     auto e = m_enums[name];
-    return e->hxName;
+    return e->haxeType;
   }
 
-  const FString& toHaxeType(UScriptStruct *inStruct) {
+  const FHaxeTypeRef& toHaxeType(UScriptStruct *inStruct) {
     FString name = inStruct->GetName();
     if (!m_structs.Contains(name)) {
-      return nullstring;
+      return nulltype;
     }
 
     auto s = m_structs[name];
-    return s->hxName;
+    return s->haxeType;
   }
 
   const ClassDescriptor *getDescriptor(UClass *inClass) {
