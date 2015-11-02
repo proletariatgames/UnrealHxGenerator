@@ -59,12 +59,17 @@ public:
 
   /** Called once all classes have been exported */
   virtual void FinishExport() override {
-    UE_LOG(LogHaxeExtern,Log,TEXT("FINISH_EXPORT"));
+    UE_LOG(LogHaxeExtern,Log,TEXT("FINISH_EXPORT 1"));
+    // now start generating
+    for (auto& cls : m_types.getAllClasses()) {
+      UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *cls->uclass->GetName())
+      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      gen.convertClass(cls);
+    }
   }
 
   /** Name of the generator plugin, mostly for debuggind purposes */
   virtual FString GetGeneratorName() const override {
-    UE_LOG(LogHaxeExtern,Log,TEXT("GENERATOR NAME"));
     return TEXT("Haxe Extern Generator Plugin");
   }
 

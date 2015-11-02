@@ -128,6 +128,7 @@ public:
       return; // we've already touched this type; probably it's UObject which gets added every time (!)
     }
     ClassDescriptor *cls = new ClassDescriptor(inClass, inHeader);
+    m_classes.Add(inClass->GetName(), cls);
     LOG("Class name %s", *cls->hxName);
     if (!m_upackageToModule.Contains(inClass->GetOuterUPackage())) {
       // UE_LOG(LogHaxeExtern,Log,TEXT("UPACKAGE %s; Module %s"), *inClass->GetOuterUPackage()->GetName(), *inModule);
@@ -207,7 +208,78 @@ public:
     }
 
     auto cls = m_classes[name];
-    return nullstring;
+    return cls->hxName;
+  }
+
+  const FString& toHaxeType(UEnum *inEnum) {
+    FString name = inEnum->GetName();
+    if (!m_enums.Contains(name)) {
+      return nullstring;
+    }
+
+    auto e = m_enums[name];
+    return e->hxName;
+  }
+
+  const FString& toHaxeType(UScriptStruct *inStruct) {
+    FString name = inStruct->GetName();
+    if (!m_structs.Contains(name)) {
+      return nullstring;
+    }
+
+    auto s = m_structs[name];
+    return s->hxName;
+  }
+
+  const ClassDescriptor *getDescriptor(UClass *inClass) {
+    FString name = inClass->GetName();
+    if (!m_classes.Contains(name)) {
+      return nullptr;
+    }
+
+    return m_classes[name];
+  }
+
+  const EnumDescriptor *getDescriptor(UEnum *inEnum) {
+    FString name = inEnum->GetName();
+    if (!m_enums.Contains(name)) {
+      return nullptr;
+    }
+
+    return m_enums[name];
+  }
+
+  const StructDescriptor *getDescriptor(UScriptStruct *inStruct) {
+    FString name = inStruct->GetName();
+    if (!m_structs.Contains(name)) {
+      return nullptr;
+    }
+
+    return m_structs[name];
+  }
+
+  TArray<const ClassDescriptor *> getAllClasses() {
+    TArray<const ClassDescriptor *> ret;
+    for (auto& elem : m_classes) {
+      ret.Add(elem.Value);
+    }
+    return ret;
+  }
+
+  TArray<const EnumDescriptor *> getAllEnums() {
+    TArray<const EnumDescriptor *> ret;
+    for (auto& elem : m_enums) {
+      ret.Add(elem.Value);
+    }
+    return ret;
+  }
+
+  TArray<const StructDescriptor *> getAllStructs() {
+    TArray<const StructDescriptor *> ret;
+    for (auto& elem : m_structs) {
+      ret.Add(elem.Value);
+    }
+    return ret;
   }
 
   ~FHaxeTypes() {
