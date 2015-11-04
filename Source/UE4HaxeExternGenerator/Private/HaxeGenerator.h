@@ -223,7 +223,7 @@ public:
     auto isInterface = hxType.kind == ETypeKind::KUInterface;
     auto uclass = inClass->uclass;
     // comment
-    FString comment = uclass->GetMetaData(NAME_ToolTip);
+    auto& comment = uclass->GetMetaData(NAME_ToolTip);
     if (!comment.IsEmpty()) {
       m_buf << Comment(comment);
     }
@@ -253,57 +253,199 @@ public:
     }
     m_buf << Begin(TEXT(" {"));
     {
-      // uproperties
-      TFieldIterator<UProperty> props(uclass, EFieldIteratorFlags::ExcludeSuper);
-      for (; props; ++props) {
-        auto prop = *props;
-        auto type = upropType(prop);
-        if (!type.IsEmpty()) {
-          m_buf << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) << prop->GetNameCPP();
-          // TODO see if the property is read-only; this might not be supported by UHT atm?
-          // if (prop->HasAnyPropertyFlags( CPF_Con
-          m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
+      auto wasEditorOnly = false;
+      TFieldIterator<UField> fields(uclass, EFieldIteratorFlags::ExcludeSuper);
+      for (; fields; ++fields) {
+        auto field = *fields;
+        if (field->IsA<UProperty>()) {
+          auto prop = Cast<UProperty>(field);
+          FString type;
+          if (upropType(prop, type)) {
+            auto isEditorOnly = prop->HasAnyPropertyFlags(CPF_EditorOnly);
+            if (isEditorOnly != wasEditorOnly) {
+              if (isEditorOnly) {
+                m_buf << TEXT("#if WITH_EDITORONLY_DATA") << Newline();
+              } else {
+                m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+              }
+              wasEditorOnly = isEditorOnly;
+            }
+            auto& propComment = prop->GetMetaData(NAME_ToolTip);
+            if (!propComment.IsEmpty()) {
+              m_buf << Comment(propComment);
+            }
+            m_buf << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) << prop->GetNameCPP();
+            // TODO see if the property is read-only; this might not be supported by UHT atm?
+            // if (prop->HasAnyPropertyFlags( CPF_Con
+            m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
+          }
+        } else if (field->IsA<UFunction>()) {
+          auto func = Cast<UFunction>(field);
+          if (func->GetOwnerClass() != uclass) {
+            // we don't need to generate overridden functions' glue code
+            continue;
+          } else if (func->HasAnyFunctionFlags(FUNC_Private)) {
+            // we can't access private functions
+            continue;
+          }
+          // we need to create a local buffer because we will only know if we should
+          // generate this function in the end of its processing
+          FHelperBuf curBuf;
+          curBuf << (func->HasAnyFunctionFlags(FUNC_Public) ? TEXT("public function ") : TEXT("private function ")) << func->GetName() << TEXT("(");
+          auto first = true;
+          auto shouldExport = true;
+          bool hasReturnValue = false;
+          for (TFieldIterator<UProperty> params(func); params; ++params) {
+            check(!hasReturnValue);
+            auto param = *params;
+            FString type;
+            if (upropType(param, type)) {
+              if (param->HasAnyPropertyFlags(CPF_ReturnParm)) {
+                hasReturnValue = true;
+                curBuf << TEXT(") : ") << type;
+              } else {
+                if (first) first = false; else curBuf << TEXT(", ");
+                curBuf << param->GetNameCPP() << TEXT(" : ") << type;
+              }
+            } else {
+              shouldExport = false;
+              break;
+            }
+          }
+          if (!hasReturnValue) {
+            curBuf << TEXT(") : Void;");
+          } else {
+            curBuf << TEXT(";");
+          }
+          if (shouldExport) {
+            // seems like we don't have a editor-only specifier for ufunctions
+            if (wasEditorOnly) {
+              wasEditorOnly = false;
+              m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+            }
+            auto& fnComment = func->GetMetaData(NAME_ToolTip);
+            if (!fnComment.IsEmpty()) {
+              m_buf << Comment(fnComment);
+            }
+            m_buf << curBuf.toString() << Newline();
+          }
+        } else {
+          LOG("Field %s is not a UFUNCTION or UPROERTY", *field->GetName());
         }
+      }
+      if (wasEditorOnly) {
+        wasEditorOnly = false;
+        m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
       }
     }
     m_buf << End();
-    LOG("%s", *m_buf.toString());
+    printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
+    return true;
+  }
+
+  bool writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType) {
+    auto end = FString();
+    // check all the flags that interest us
+    // UStruct pointers aren't supported; so we're left either with PRef, PStruct and Const to check
+    if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm)) {
+      outType += TEXT("unreal.PRef<");
+      end += TEXT(">");
+    }
+    if (inProp->HasAnyPropertyFlags(CPF_ConstParm) || (inProp->HasAnyPropertyFlags(CPF_ReferenceParm) && !inProp->HasAnyPropertyFlags(CPF_OutParm))) {
+      outType += TEXT("unreal.Const<");
+      end += TEXT(">");
+    }
+
+    outType += inName + end;
     return true;
   }
 
   // Gets the Haxe representation for a `UProperty` type. This is used both for uproperties and for ufunction arguments
   // Returns an empty string if the type is not supported
-  FString upropType(UProperty* inProp) {
+  bool upropType(UProperty* inProp, FString &outType) {
     // from the most common to the least
     if (inProp->IsA<UStructProperty>()) {
       auto prop = Cast<UStructProperty>(inProp);
       auto descr = m_haxeTypes.getDescriptor( prop->Struct );
       if (descr == nullptr) {
-        LOG("TYPE NOT SUPPORTED: %s", *prop->Struct->GetName());
+        LOG("(struct) TYPE NOT SUPPORTED: %s", *prop->Struct->GetName());
         // may happen if we never used this in a way the struct is known
-        return FString();
+        return false;
       }
-      // check all the flags that interest us
-      auto ret = FString();
-      auto end = FString();
-      // UStruct pointers aren't supported; so we're left either with PRef, PStruct and Const to check
-      if (prop->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
-        ret += TEXT("unreal.PRef<");
-        end += TEXT(">");
+      return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
+    } else if (inProp->IsA<UObjectProperty>()) {
+      if (inProp->IsA<UClassProperty>()) {
+        auto prop = Cast<UClassProperty>(inProp);
+        if (prop->HasAnyPropertyFlags(CPF_UObjectWrapper)) {
+          auto descr = m_haxeTypes.getDescriptor(prop->MetaClass);
+          if (descr == nullptr) {
+            LOG("(tsubclassof) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
+            return false;
+          }
+          outType += TEXT("unreal.TSubclassOf<") + descr->haxeType.toString() + TEXT(">");
+          return true;
+        }
+      }
+      auto prop = Cast<UObjectProperty>(inProp);
+      auto descr = m_haxeTypes.getDescriptor(prop->PropertyClass);
+      if (descr == nullptr) {
+        LOG("(uclass) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
+        return false;
+      }
+      outType += descr->haxeType.toString();
+      return true;
+    } else if (inProp->IsA<UNumericProperty>()) {
+      if (inProp->IsA<UByteProperty>()) {
+        outType += TEXT("unreal.UInt8");
+      } else if (inProp->IsA<UInt8Property>()) {
+        outType += TEXT("unreal.Int8");
+      } else if (inProp->IsA<UInt16Property>()) {
+        outType += TEXT("unreal.Int16");
+      } else if (inProp->IsA<UIntProperty>()) {
+        outType += TEXT("unreal.Int32");
+      } else if (inProp->IsA<UInt64Property>()) {
+        outType += TEXT("unreal.Int64");
+      } else if (inProp->IsA<UUInt16Property>()) {
+        outType += TEXT("unreal.UInt16");
+      } else if (inProp->IsA<UUInt32Property>()) {
+        outType += TEXT("unreal.FakeUInt32");
+      } else if (inProp->IsA<UUInt64Property>()) {
+        outType += TEXT("unreal.FakeUInt64");
+      } else if (inProp->IsA<UFloatProperty>()) {
+        outType += TEXT("unreal.Float32");
+      } else if (inProp->IsA<UDoubleProperty>()) {
+        outType += TEXT("unreal.Float64");
       } else {
-        ret += TEXT("unreal.PStruct<");
-        end += TEXT(">");
+        LOG("NUMERIC TYPE NOT SUPPORTED: %s", *inProp->GetClass()->GetName());
+        return false;
       }
-      if (prop->HasAnyPropertyFlags(CPF_ConstParm) || (prop->HasAnyPropertyFlags(CPF_ReferenceParm) && !prop->HasAnyPropertyFlags(CPF_OutParm))) {
-        ret += TEXT("unreal.Const<");
-        end += TEXT(">");
-      }
-
-      ret += descr->haxeType.toString() + end;
-      return ret;
+      return true;
+    } else if (inProp->IsA<UBoolProperty>()) {
+      outType += TEXT("Bool");
+      return true;
+    } else if (inProp->IsA<UNameProperty>()) {
+      return writeWithModifiers(TEXT("unreal.FName"), inProp, outType);
+    } else if (inProp->IsA<UStrProperty>()) {
+      return writeWithModifiers(TEXT("unreal.FString"), inProp, outType);
+    } else if (inProp->IsA<UArrayProperty>()) {
+      auto prop = Cast<UArrayProperty>(inProp);
+      FString inner;
+      if (!upropType(prop->Inner, inner))
+        return false;
+      return writeWithModifiers(TEXT("unreal.TArray<") + inner + TEXT(">"), inProp, outType);
     }
+    // uenum
+    // uinterface
+    // udelegate
+    //
+    // TLazyObjectPtr
+    // UAssetObjectPtr - TPersistentObjectPtr
+    // UInterfaceProperty
+    // UMapProperty (TMap)
+    // UDelegateProperty 
+    // UMulticastDelegateProperty 
 
     LOG("Property %s (class %s) not supported", *inProp->GetName(), *inProp->GetClass()->GetName());
-    return FString();
+    return false;
   }
 };
