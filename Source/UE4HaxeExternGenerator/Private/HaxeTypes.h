@@ -214,25 +214,27 @@ public:
     TFieldIterator<UProperty> props(inClass, EFieldIteratorFlags::ExcludeSuper);
     for (; props; ++props) {
       UProperty *prop = *props;
-      // LOG("Property %s (%s)", *prop->GetClass()->GetName(), *prop->GetCPPType(nullptr, CPPF_None));
-      // see UnrealType.h for all possible variations
-      if (prop->IsA<UStructProperty>()) {
-        auto structProp = Cast<UStructProperty>(prop);
-        // see ObjectBase.h for all possible variations
-        if (!structProp->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
-          this->touchStruct(structProp->Struct, cls);
-        } else {
-          // UE_LOG(LogHaxeExtern,Log,TEXT("Property %s is a pointer/ref"),*structProp->GetName());
-        }
-      } else if (prop->IsA<UByteProperty>()) {
-        auto numeric = Cast<UByteProperty>(prop);
-        UEnum *uenum = numeric->GetIntPropertyEnum();
-        if (nullptr != uenum) {
-          // is enum
-          // LOG("UENUM FOUND: %s (declaration %s)", *uenum->GetName(), *prop->GetCPPType(nullptr, CPPF_None));
-          this->touchEnum(uenum, cls);
-        }
+      touchProperty(prop, cls);
+    }
+  }
+
+  void touchProperty(UProperty *inProp, ClassDescriptor *inClass) {
+    // see UnrealType.h for all possible variations
+    if (inProp->IsA<UStructProperty>()) {
+      auto structProp = Cast<UStructProperty>(inProp);
+      if (!structProp->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
+        this->touchStruct(structProp->Struct, inClass);
       }
+    } else if (inProp->IsA<UNumericProperty>()) {
+      auto numeric = Cast<UNumericProperty>(inProp);
+      UEnum *uenum = numeric->GetIntPropertyEnum();
+      if (nullptr != uenum) {
+        // is enum
+        this->touchEnum(uenum, inClass);
+      }
+    } else if (inProp->IsA<UArrayProperty>()) {
+      auto prop = Cast<UArrayProperty>(inProp);
+      touchProperty(prop->Inner, inClass);
     }
   }
 
@@ -306,6 +308,7 @@ public:
   }
 
   const ClassDescriptor *getDescriptor(UClass *inClass) {
+    if (inClass == nullptr) return nullptr;
     FString name = inClass->GetName();
     if (!m_classes.Contains(name)) {
       return nullptr;
@@ -315,6 +318,7 @@ public:
   }
 
   const EnumDescriptor *getDescriptor(UEnum *inEnum) {
+    if (inEnum == nullptr) return nullptr;
     FString name = inEnum->GetName();
     if (!m_enums.Contains(name)) {
       return nullptr;
@@ -324,6 +328,7 @@ public:
   }
 
   const StructDescriptor *getDescriptor(UScriptStruct *inStruct) {
+    if (inStruct == nullptr) return nullptr;
     FString name = inStruct->GetName();
     if (!m_structs.Contains(name)) {
       return nullptr;

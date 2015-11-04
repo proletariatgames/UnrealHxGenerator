@@ -291,6 +291,16 @@ public:
           // we need to create a local buffer because we will only know if we should
           // generate this function in the end of its processing
           FHelperBuf curBuf;
+
+          if (func->HasAnyFunctionFlags(FUNC_Const)) {
+            curBuf << TEXT("@:thisConst ");
+          }
+
+          if (func->HasAnyFunctionFlags(FUNC_Static)) {
+            curBuf << TEXT("static ");
+          } else if (func->HasAnyFunctionFlags(FUNC_Final)) {
+            curBuf << TEXT("@:final ");
+          }
           curBuf << (func->HasAnyFunctionFlags(FUNC_Public) ? TEXT("public function ") : TEXT("private function ")) << func->GetName() << TEXT("(");
           auto first = true;
           auto shouldExport = true;
@@ -318,7 +328,7 @@ public:
             curBuf << TEXT(";");
           }
           if (shouldExport) {
-            // seems like we don't have a editor-only specifier for ufunctions
+            // seems like UHT doesn't support editor-only ufunctions
             if (wasEditorOnly) {
               wasEditorOnly = false;
               m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
@@ -347,14 +357,20 @@ public:
     auto end = FString();
     // check all the flags that interest us
     // UStruct pointers aren't supported; so we're left either with PRef, PStruct and Const to check
-    if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm)) {
-      outType += TEXT("unreal.PRef<");
-      end += TEXT(">");
-    }
-    if (inProp->HasAnyPropertyFlags(CPF_ConstParm) || (inProp->HasAnyPropertyFlags(CPF_ReferenceParm) && !inProp->HasAnyPropertyFlags(CPF_OutParm))) {
+    if (
+      inProp->HasAnyPropertyFlags(CPF_ConstParm) ||
+      (inProp->HasAnyPropertyFlags(CPF_ReferenceParm) && !inProp->HasAnyPropertyFlags(CPF_OutParm)) ||
+      // UHT doesn't provide information about which return parameters are const or not; so we'll assume yes for everything
+      inProp->HasAnyPropertyFlags(CPF_ReturnParm)
+    ) {
       outType += TEXT("unreal.Const<");
       end += TEXT(">");
     }
+    if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm | CPF_OutParm)) {
+      outType += TEXT("unreal.PRef<");
+      end += TEXT(">");
+    }
+    LOG("PROPERTY %s: %s %llx", *inName, *outType, (long long int) inProp->PropertyFlags);
 
     outType += inName + end;
     return true;
@@ -395,6 +411,15 @@ public:
       outType += descr->haxeType.toString();
       return true;
     } else if (inProp->IsA<UNumericProperty>()) {
+      auto numeric = Cast<UNumericProperty>(inProp);
+      UEnum *uenum = numeric->GetIntPropertyEnum();
+      if (uenum != nullptr) {
+        auto descr = m_haxeTypes.getDescriptor(uenum);
+        if (descr == nullptr) {
+          return false;
+        }
+        return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
+      }
       if (inProp->IsA<UByteProperty>()) {
         outType += TEXT("unreal.UInt8");
       } else if (inProp->IsA<UInt8Property>()) {
