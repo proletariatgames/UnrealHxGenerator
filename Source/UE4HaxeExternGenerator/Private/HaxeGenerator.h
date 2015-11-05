@@ -168,16 +168,16 @@ private:
   FHelperBuf m_buf;
   FHaxeTypes& m_haxeTypes;
   const FString& m_basePath;
+  bool m_hasStructs;
 
-public:
-  FHaxeGenerator(FHaxeTypes& inTypes, const FString& inBasePath) : 
+  public: FHaxeGenerator(FHaxeTypes& inTypes, const FString& inBasePath) : 
     m_buf(FHelperBuf()),
     m_haxeTypes(inTypes),
     m_basePath(inBasePath)
   {
   }
 
-  static FString getHeaderPath(UPackage *inPack, const FString& inPath) {
+  protected: static FString getHeaderPath(UPackage *inPack, const FString& inPath) {
     if (inPath.IsEmpty()) {
       // this is a particularity of UHT - it sometimes adds no header path to some of the core UObjects
       return FString("CoreUObject.h");
@@ -199,6 +199,9 @@ public:
       if (index >= 0)
         index += pack.Len() + 1;
     }
+    if (index < 0) {
+      index = inPath.Find(TEXT("Private"), ESearchCase::IgnoreCase, ESearchDir::FromEnd, inPath.Len());
+    }
     if (index >= 0) {
       int len = inPath.Len();
       while (len > ++index && (inPath[index] == TCHAR('/') || inPath[index] == TCHAR('\\'))) {
@@ -212,7 +215,114 @@ public:
     return FString();
   }
 
-  bool convertClass(const ClassDescriptor *inClass) {
+  protected: void generateFields(UStruct *inStruct) {
+    static const FName NAME_ToolTip(TEXT("ToolTip"));
+    UClass *uclass = nullptr;
+    if (inStruct->IsA<UClass>()) {
+      uclass = Cast<UClass>(inStruct);
+    }
+    auto wasEditorOnly = false;
+    TArray<UField *> fields;
+    for (TFieldIterator<UField> invFields(inStruct, EFieldIteratorFlags::ExcludeSuper); invFields; ++invFields) {
+      fields.Push(*invFields);
+    }
+    while (fields.Num() > 0) {
+      // reverse field iterator so fields are declared in the same order as C++ code
+      auto field = fields.Pop(false);
+      if (field->IsA<UProperty>()) {
+        auto prop = Cast<UProperty>(field);
+        FString type;
+        if (upropType(prop, type)) {
+          auto isEditorOnly = prop->HasAnyPropertyFlags(CPF_EditorOnly);
+          if (isEditorOnly != wasEditorOnly) {
+            if (isEditorOnly) {
+              m_buf << TEXT("#if WITH_EDITORONLY_DATA") << Newline();
+            } else {
+              m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+            }
+            wasEditorOnly = isEditorOnly;
+          }
+          auto& propComment = prop->GetMetaData(NAME_ToolTip);
+          if (!propComment.IsEmpty()) {
+            m_buf << Comment(propComment);
+          }
+          m_buf << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) << prop->GetNameCPP();
+          // TODO see if the property is read-only; this might not be supported by UHT atm?
+          // if (prop->HasAnyPropertyFlags( CPF_Con
+          m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
+        }
+      } else if (field->IsA<UFunction>()) {
+        auto func = Cast<UFunction>(field);
+        if ((uclass != nullptr && func->GetOwnerClass() != uclass) || func->GetOwnerStruct() != inStruct) {
+          // we don't need to generate overridden functions' glue code
+          continue;
+        } else if (func->HasAnyFunctionFlags(FUNC_Private)) {
+          // we can't access private functions
+          continue;
+        }
+        // we need to create a local buffer because we will only know if we should
+        // generate this function in the end of its processing
+        FHelperBuf curBuf;
+
+        if (func->HasAnyFunctionFlags(FUNC_Const)) {
+          curBuf << TEXT("@:thisConst ");
+        }
+
+        LOG("Generating %s (flags %x)", *func->GetName(), func->FunctionFlags);
+        if (func->HasAnyFunctionFlags(FUNC_Static)) {
+          curBuf << TEXT("static ");
+        } else if (func->HasAnyFunctionFlags(FUNC_Final)) {
+          curBuf << TEXT("@:final ");
+        }
+        curBuf << (func->HasAnyFunctionFlags(FUNC_Public) ? TEXT("public function ") : TEXT("private function ")) << func->GetName() << TEXT("(");
+        auto first = true;
+        auto shouldExport = true;
+        bool hasReturnValue = false;
+        for (TFieldIterator<UProperty> params(func); params; ++params) {
+          check(!hasReturnValue);
+          auto param = *params;
+          FString type;
+          if (upropType(param, type)) {
+            if (param->HasAnyPropertyFlags(CPF_ReturnParm)) {
+              hasReturnValue = true;
+              curBuf << TEXT(") : ") << type;
+            } else {
+              if (first) first = false; else curBuf << TEXT(", ");
+              curBuf << param->GetNameCPP() << TEXT(" : ") << type;
+            }
+          } else {
+            shouldExport = false;
+            break;
+          }
+        }
+        if (!hasReturnValue) {
+          curBuf << TEXT(") : Void;");
+        } else {
+          curBuf << TEXT(";");
+        }
+        if (shouldExport) {
+          // seems like UHT doesn't support editor-only ufunctions
+          if (wasEditorOnly) {
+            wasEditorOnly = false;
+            m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+          }
+          auto& fnComment = func->GetMetaData(NAME_ToolTip);
+          if (!fnComment.IsEmpty()) {
+            m_buf << Comment(fnComment);
+          }
+          m_buf << curBuf.toString() << Newline();
+        }
+      } else {
+        LOG("Field %s is not a UFUNCTION or UPROERTY", *field->GetName());
+      }
+    }
+    if (wasEditorOnly) {
+      wasEditorOnly = false;
+      m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+    }
+  }
+
+  public: bool generateClass(const ClassDescriptor *inClass) {
     static const FName NAME_ToolTip(TEXT("ToolTip"));
     auto hxType = inClass->haxeType;
 
@@ -253,132 +363,99 @@ public:
     }
     m_buf << Begin(TEXT(" {"));
     {
-      auto wasEditorOnly = false;
-      TFieldIterator<UField> fields(uclass, EFieldIteratorFlags::ExcludeSuper);
-      for (; fields; ++fields) {
-        auto field = *fields;
-        if (field->IsA<UProperty>()) {
-          auto prop = Cast<UProperty>(field);
-          FString type;
-          if (upropType(prop, type)) {
-            auto isEditorOnly = prop->HasAnyPropertyFlags(CPF_EditorOnly);
-            if (isEditorOnly != wasEditorOnly) {
-              if (isEditorOnly) {
-                m_buf << TEXT("#if WITH_EDITORONLY_DATA") << Newline();
-              } else {
-                m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
-              }
-              wasEditorOnly = isEditorOnly;
-            }
-            auto& propComment = prop->GetMetaData(NAME_ToolTip);
-            if (!propComment.IsEmpty()) {
-              m_buf << Comment(propComment);
-            }
-            m_buf << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) << prop->GetNameCPP();
-            // TODO see if the property is read-only; this might not be supported by UHT atm?
-            // if (prop->HasAnyPropertyFlags( CPF_Con
-            m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
-          }
-        } else if (field->IsA<UFunction>()) {
-          auto func = Cast<UFunction>(field);
-          if (func->GetOwnerClass() != uclass) {
-            // we don't need to generate overridden functions' glue code
-            continue;
-          } else if (func->HasAnyFunctionFlags(FUNC_Private)) {
-            // we can't access private functions
-            continue;
-          }
-          // we need to create a local buffer because we will only know if we should
-          // generate this function in the end of its processing
-          FHelperBuf curBuf;
-
-          if (func->HasAnyFunctionFlags(FUNC_Const)) {
-            curBuf << TEXT("@:thisConst ");
-          }
-
-          if (func->HasAnyFunctionFlags(FUNC_Static)) {
-            curBuf << TEXT("static ");
-          } else if (func->HasAnyFunctionFlags(FUNC_Final)) {
-            curBuf << TEXT("@:final ");
-          }
-          curBuf << (func->HasAnyFunctionFlags(FUNC_Public) ? TEXT("public function ") : TEXT("private function ")) << func->GetName() << TEXT("(");
-          auto first = true;
-          auto shouldExport = true;
-          bool hasReturnValue = false;
-          for (TFieldIterator<UProperty> params(func); params; ++params) {
-            check(!hasReturnValue);
-            auto param = *params;
-            FString type;
-            if (upropType(param, type)) {
-              if (param->HasAnyPropertyFlags(CPF_ReturnParm)) {
-                hasReturnValue = true;
-                curBuf << TEXT(") : ") << type;
-              } else {
-                if (first) first = false; else curBuf << TEXT(", ");
-                curBuf << param->GetNameCPP() << TEXT(" : ") << type;
-              }
-            } else {
-              shouldExport = false;
-              break;
-            }
-          }
-          if (!hasReturnValue) {
-            curBuf << TEXT(") : Void;");
-          } else {
-            curBuf << TEXT(";");
-          }
-          if (shouldExport) {
-            // seems like UHT doesn't support editor-only ufunctions
-            if (wasEditorOnly) {
-              wasEditorOnly = false;
-              m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
-            }
-            auto& fnComment = func->GetMetaData(NAME_ToolTip);
-            if (!fnComment.IsEmpty()) {
-              m_buf << Comment(fnComment);
-            }
-            m_buf << curBuf.toString() << Newline();
-          }
-        } else {
-          LOG("Field %s is not a UFUNCTION or UPROERTY", *field->GetName());
-        }
-      }
-      if (wasEditorOnly) {
-        wasEditorOnly = false;
-        m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
-      }
+      this->generateFields(uclass);
     }
     m_buf << End();
     printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
     return true;
   }
 
-  bool writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType) {
+  public: bool generateStruct(const StructDescriptor *inStruct) {
+    static const FName NAME_ToolTip(TEXT("ToolTip"));
+    auto hxType = inStruct->haxeType;
+
+    if (hxType.pack.Num() > 0) {
+      m_buf << TEXT("package ") << FString::Join(hxType.pack, TEXT(".")) << ";" << Newline() << Newline();
+    }
+    
+    auto ustruct = inStruct->ustruct;
+    // comment
+    auto& comment = ustruct->GetMetaData(NAME_ToolTip);
+    if (!comment.IsEmpty()) {
+      m_buf << Comment(comment);
+    }
+    // @:umodule
+    if (!hxType.module.IsEmpty()) {
+      m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
+    }
+    // @:glueCppIncludes
+    m_buf << TEXT("@:glueCppIncludes(\"") << Escaped(getHeaderPath(ustruct->GetOutermost(), inStruct->getHeader())) << TEXT("\")") << Newline();
+    m_buf << TEXT("@:uextern extern ") << TEXT("class ") << hxType.name;
+    auto superStruct = ustruct->GetSuperStruct();
+    const StructDescriptor *super = nullptr;
+    if (nullptr != superStruct) {
+      LOG("extends %s", *superStruct->GetName());
+      // super = m_haxeTypes.getDescriptor((UScriptStruct *) superStruct);
+      // m_buf << " extends " << super->haxeType.toString();
+    }
+
+    m_buf << Begin(TEXT(" {"));
+    {
+      this->generateFields(ustruct);
+    }
+    m_buf << End();
+    printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
+    return true;
+  }
+
+  protected: bool writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType) {
     auto end = FString();
     // check all the flags that interest us
     // UStruct pointers aren't supported; so we're left either with PRef, PStruct and Const to check
-    if (
-      inProp->HasAnyPropertyFlags(CPF_ConstParm) ||
-      (inProp->HasAnyPropertyFlags(CPF_ReferenceParm) && !inProp->HasAnyPropertyFlags(CPF_OutParm)) ||
-      // UHT doesn't provide information about which return parameters are const or not; so we'll assume yes for everything
-      inProp->HasAnyPropertyFlags(CPF_ReturnParm)
-    ) {
-      outType += TEXT("unreal.Const<");
-      end += TEXT(">");
+    if (inProp->HasAnyPropertyFlags(CPF_ReturnParm)) {
+      if (inProp->HasAnyPropertyFlags(CPF_ConstParm)) {
+        outType += TEXT("unreal.Const<");
+        end += TEXT(">");
+      }
+      if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm)) {
+        outType += TEXT("unreal.PRef<");
+        end += TEXT(">");
+      }
+    } else {
+      if (
+        inProp->HasAnyPropertyFlags(CPF_ConstParm) ||
+        (inProp->HasAnyPropertyFlags(CPF_ReferenceParm) && !inProp->HasAnyPropertyFlags(CPF_OutParm))
+      ) {
+        outType += TEXT("unreal.Const<");
+        end += TEXT(">");
+      }
+      if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm | CPF_OutParm)) {
+        outType += TEXT("unreal.PRef<");
+        end += TEXT(">");
+      } 
     }
-    if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm | CPF_OutParm)) {
-      outType += TEXT("unreal.PRef<");
-      end += TEXT(">");
-    }
+
+    // UHT bug: it doesn't provide any way to differentiate `const SomeType&` to `SomeType`
+    // so we'll assume it's always the latter - which is more common
+    // if (inProp->HasAnyPropertyFlags(CPF_Parm) && end.IsEmpty()) {
+    //   outType += TEXT("unreal.Const<unreal.PRef<") + inName + TEXT(">>");
+    //   return true;
+    // }
     LOG("PROPERTY %s: %s %llx", *inName, *outType, (long long int) inProp->PropertyFlags);
 
     outType += inName + end;
     return true;
   }
 
+  protected: bool writeBasicWithModifiers(const FString &inName, UProperty *inProp, FString &outType) {
+    // TODO support basic types' modifiers
+    outType += inName;
+    return true;
+  }
+
   // Gets the Haxe representation for a `UProperty` type. This is used both for uproperties and for ufunction arguments
   // Returns an empty string if the type is not supported
-  bool upropType(UProperty* inProp, FString &outType) {
+  protected: bool upropType(UProperty* inProp, FString &outType) {
     // from the most common to the least
     if (inProp->IsA<UStructProperty>()) {
       auto prop = Cast<UStructProperty>(inProp);
@@ -398,8 +475,7 @@ public:
             LOG("(tsubclassof) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
             return false;
           }
-          outType += TEXT("unreal.TSubclassOf<") + descr->haxeType.toString() + TEXT(">");
-          return true;
+          return writeWithModifiers(TEXT("unreal.TSubclassOf<") + descr->haxeType.toString() + TEXT(">"), inProp, outType);
         }
       }
       auto prop = Cast<UObjectProperty>(inProp);
@@ -421,32 +497,32 @@ public:
         return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
       }
       if (inProp->IsA<UByteProperty>()) {
-        outType += TEXT("unreal.UInt8");
+        return writeBasicWithModifiers(TEXT("unreal.UInt8"), inProp, outType);
       } else if (inProp->IsA<UInt8Property>()) {
-        outType += TEXT("unreal.Int8");
+        return writeBasicWithModifiers(TEXT("unreal.Int8"), inProp, outType);
       } else if (inProp->IsA<UInt16Property>()) {
-        outType += TEXT("unreal.Int16");
+        return writeBasicWithModifiers(TEXT("unreal.Int16"), inProp, outType);
       } else if (inProp->IsA<UIntProperty>()) {
-        outType += TEXT("unreal.Int32");
+        return writeBasicWithModifiers(TEXT("unreal.Int32"), inProp, outType);
       } else if (inProp->IsA<UInt64Property>()) {
-        outType += TEXT("unreal.Int64");
+        return writeBasicWithModifiers(TEXT("unreal.Int64"), inProp, outType);
       } else if (inProp->IsA<UUInt16Property>()) {
-        outType += TEXT("unreal.UInt16");
+        return writeBasicWithModifiers(TEXT("unreal.UInt16"), inProp, outType);
       } else if (inProp->IsA<UUInt32Property>()) {
-        outType += TEXT("unreal.FakeUInt32");
+        return writeBasicWithModifiers(TEXT("unreal.FakeUInt32"), inProp, outType);
       } else if (inProp->IsA<UUInt64Property>()) {
-        outType += TEXT("unreal.FakeUInt64");
+        return writeBasicWithModifiers(TEXT("unreal.FakeUInt64"), inProp, outType);
       } else if (inProp->IsA<UFloatProperty>()) {
-        outType += TEXT("unreal.Float32");
+        return writeBasicWithModifiers(TEXT("unreal.Float32"), inProp, outType);
       } else if (inProp->IsA<UDoubleProperty>()) {
-        outType += TEXT("unreal.Float64");
+        return writeBasicWithModifiers(TEXT("unreal.Float64"), inProp, outType);
       } else {
         LOG("NUMERIC TYPE NOT SUPPORTED: %s", *inProp->GetClass()->GetName());
         return false;
       }
       return true;
     } else if (inProp->IsA<UBoolProperty>()) {
-      outType += TEXT("Bool");
+      return writeBasicWithModifiers(TEXT("Bool"), inProp, outType);
       return true;
     } else if (inProp->IsA<UNameProperty>()) {
       return writeWithModifiers(TEXT("unreal.FName"), inProp, outType);

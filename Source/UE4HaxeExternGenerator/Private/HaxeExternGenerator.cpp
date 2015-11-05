@@ -60,7 +60,15 @@ public:
     for (auto& cls : m_types.getAllClasses()) {
       UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *cls->uclass->GetName())
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
-      gen.convertClass(cls);
+      gen.generateClass(cls);
+    }
+
+    UE_LOG(LogHaxeExtern,Log,TEXT("STARTING USTRUCTS"));
+    for (auto& s : m_types.getAllStructs()) {
+      UE_LOG(LogHaxeExtern,Log,TEXT("BEGIN"));
+      UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *s->ustruct->GetName())
+      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      gen.generateStruct(s);
     }
   }
 

@@ -116,6 +116,18 @@ struct NonClassDescriptor {
     return false;
   }
 
+  FString getHeader() const {
+    for (auto module : sameModuleRefs) {
+      return module->header;
+    }
+    for (auto module : otherModuleRefs) {
+      return module->header;
+    }
+
+    check(false);
+    return FString();
+  }
+
 protected:
   const UPackage *m_thisPackage;
   NonClassDescriptor(FHaxeTypeRef name) : 
