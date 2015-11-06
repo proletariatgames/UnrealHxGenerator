@@ -97,10 +97,38 @@ private:
   }
 };
 
+class ModuleDescriptor {
+private:
+  TArray<ClassDescriptor *> m_classes;
+  UPackage *m_module;
+
+public:
+  TSet<FString> headers;
+  FString moduleName;
+
+  ModuleDescriptor(UPackage *inPackage) :
+    m_module(inPackage)
+  {
+  }
+
+  void touch(ClassDescriptor *inClass, FString inModuleName) {
+    this->m_classes.Push(inClass);
+    this->headers.Add(inClass->header);
+
+    if (this->moduleName.IsEmpty())
+      this->moduleName = inModuleName;
+  }
+
+  UPackage *getPackage() {
+    return m_module;
+  }
+};
+
 struct NonClassDescriptor {
   TSet<const ClassDescriptor *> sameModuleRefs;
   TSet<const ClassDescriptor *> otherModuleRefs;
   const FHaxeTypeRef haxeType;
+  const ModuleDescriptor *module;
 
   bool addRef(const ClassDescriptor *cls) {
     bool unused;
@@ -117,11 +145,11 @@ struct NonClassDescriptor {
   }
 
   FString getHeader() const {
-    for (auto module : sameModuleRefs) {
-      return module->header;
+    for (auto m : sameModuleRefs) {
+      return m->header;
     }
-    for (auto module : otherModuleRefs) {
-      return module->header;
+    for (auto m : otherModuleRefs) {
+      return m->header;
     }
 
     check(false);
@@ -130,8 +158,9 @@ struct NonClassDescriptor {
 
 protected:
   const UPackage *m_thisPackage;
-  NonClassDescriptor(FHaxeTypeRef name) : 
-    haxeType(name)
+  NonClassDescriptor(FHaxeTypeRef inName, ModuleDescriptor *inModule) : 
+    haxeType(inName),
+    module(inModule)
   {
   }
 };
@@ -139,8 +168,8 @@ protected:
 struct EnumDescriptor : public NonClassDescriptor {
   UEnum *uenum;
 
-  EnumDescriptor (UEnum *inUEnum) : 
-    NonClassDescriptor(getHaxeType(inUEnum)),
+  EnumDescriptor (UEnum *inUEnum, ModuleDescriptor *inModule) : 
+    NonClassDescriptor(getHaxeType(inUEnum), inModule),
     uenum(inUEnum)
   {
     this->m_thisPackage = inUEnum->GetOutermost();
@@ -180,8 +209,8 @@ private:
 struct StructDescriptor : public NonClassDescriptor {
   UScriptStruct *ustruct;
 
-  StructDescriptor(UScriptStruct *inUStruct) :
-    NonClassDescriptor(getHaxeType(inUStruct)),
+  StructDescriptor(UScriptStruct *inUStruct, ModuleDescriptor *inModule) :
+    NonClassDescriptor(getHaxeType(inUStruct), inModule),
     ustruct(inUStruct)
   {
     this->m_thisPackage = inUStruct->GetOutermost();
@@ -205,7 +234,7 @@ private:
   TMap<FString, EnumDescriptor *> m_enums;
   TMap<FString, StructDescriptor *> m_structs;
 
-  TMap<UPackage *, FString> m_upackageToModule;
+  TMap<UPackage *, ModuleDescriptor *> m_upackageToModule;
 
   const static FHaxeTypeRef nulltype;
 
@@ -217,10 +246,8 @@ public:
     ClassDescriptor *cls = new ClassDescriptor(inClass, inHeader);
     m_classes.Add(inClass->GetName(), cls);
     LOG("Class name %s", *cls->haxeType.toString());
-    if (!m_upackageToModule.Contains(inClass->GetOuterUPackage())) {
-      // UE_LOG(LogHaxeExtern,Log,TEXT("UPACKAGE %s; Module %s"), *inClass->GetOuterUPackage()->GetName(), *inModule);
-      m_upackageToModule.Add(inClass->GetOuterUPackage(), inModule);
-    }
+    auto module = getModule(inClass->GetOuterUPackage());
+    module->touch(cls, inModule);
 
     // examine all properties and see if any of them uses a struct or enum in a way that would need to include the actual file
     TFieldIterator<UProperty> props(inClass, EFieldIteratorFlags::ExcludeSuper);
@@ -228,6 +255,15 @@ public:
       UProperty *prop = *props;
       touchProperty(prop, cls);
     }
+  }
+
+  ModuleDescriptor *getModule(UPackage *inPackage) {
+    if (m_upackageToModule.Contains(inPackage)) {
+      return m_upackageToModule[inPackage];
+    }
+    auto module = new ModuleDescriptor(inPackage);
+    m_upackageToModule.Add(inPackage, module);
+    return module;
   }
 
   void touchProperty(UProperty *inProp, ClassDescriptor *inClass) {
@@ -263,7 +299,7 @@ public:
     // inStruct->StructMacroDeclaredLineNumber
     auto name = inStruct->GetName();
     if (!m_structs.Contains(name)) {
-      m_structs.Add(name, new StructDescriptor(inStruct));
+      m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
     }
     auto descr = m_structs[name];
     descr->addRef(inClass);
@@ -277,7 +313,7 @@ public:
   void touchEnum(UEnum *inEnum, ClassDescriptor *inClass) {
     auto name = inEnum->GetName();
     if (!m_enums.Contains(name)) {
-      m_enums.Add(name, new EnumDescriptor(inEnum));
+      m_enums.Add(name, new EnumDescriptor(inEnum, this->getModule(inEnum->GetOutermost())));
     }
     auto descr = m_enums[name];
     LOG("Haxe enum name: %s", *descr->haxeType.toString());
