@@ -31,7 +31,9 @@ public:
   /** Returns true if this plugin supports exporting scripts for the specified target. This should handle game as well as editor target names */
   virtual bool SupportsTarget(const FString& TargetName) const override { 
     UE_LOG(LogHaxeExtern,Log,TEXT("SUPPORTS %s"), *TargetName);
-    return true;
+    TCHAR env[2];
+    FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"), env, 2);
+    return *env;
   }
   /** Returns true if this plugin supports exporting scripts for the specified module */
   virtual bool ShouldExportClassesForModule(const FString& ModuleName, EBuildModuleType::Type ModuleType, const FString& ModuleGeneratedIncludeDirectory) const override {
@@ -296,20 +298,15 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   m_buf << TEXT("@:glueCppIncludes(\"") << Escaped(getHeaderPath(ustruct->GetOutermost(), inStruct->getHeader())) << TEXT("\")") << Newline();
   m_buf << TEXT("@:uextern extern ") << TEXT("class ") << hxType.name;
 
+  auto superStruct = ustruct->GetSuperStruct();
+  const StructDescriptor *super = nullptr;
+  if (nullptr != superStruct) {
+    super = m_haxeTypes.getDescriptor((UScriptStruct *) superStruct);
+    m_buf << " extends " << super->haxeType.toString();
+  }
   m_buf << Begin(TEXT(" {"));
   {
     this->generateFields(ustruct);
-    // for now, we'll generate the super structs inline
-    auto superStruct = ustruct->GetSuperStruct();
-    // const StructDescriptor *super = nullptr;
-    if (nullptr != superStruct) {
-      m_buf << "// " << superStruct->GetName() << " implementation" << Newline();
-      LOG("struct extends %s", *superStruct->GetName());
-      this->generateFields(superStruct);
-      superStruct = superStruct->GetSuperStruct();
-      // super = m_haxeTypes.getDescriptor((UScriptStruct *) superStruct);
-      // m_buf << " extends " << super->haxeType.toString();
-    }
   }
   m_buf << End();
   printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));

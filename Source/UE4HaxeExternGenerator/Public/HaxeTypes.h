@@ -119,7 +119,7 @@ public:
       this->moduleName = inModuleName;
   }
 
-  UPackage *getPackage() {
+  UPackage *getPackage() const {
     return m_module;
   }
 };
@@ -133,7 +133,7 @@ struct NonClassDescriptor {
   bool addRef(const ClassDescriptor *cls) {
     bool unused;
     UPackage *pack = cls->uclass->GetOuterUPackage();
-    if (pack == m_thisPackage) {
+    if (pack == module->getPackage()) {
       this->sameModuleRefs.Add(cls, &unused);
       return true;
     } else {
@@ -157,7 +157,6 @@ struct NonClassDescriptor {
   }
 
 protected:
-  const UPackage *m_thisPackage;
   NonClassDescriptor(FHaxeTypeRef inName, ModuleDescriptor *inModule) : 
     haxeType(inName),
     module(inModule)
@@ -172,7 +171,6 @@ struct EnumDescriptor : public NonClassDescriptor {
     NonClassDescriptor(getHaxeType(inUEnum), inModule),
     uenum(inUEnum)
   {
-    this->m_thisPackage = inUEnum->GetOutermost();
   }
 
 private:
@@ -213,7 +211,6 @@ struct StructDescriptor : public NonClassDescriptor {
     NonClassDescriptor(getHaxeType(inUStruct), inModule),
     ustruct(inUStruct)
   {
-    this->m_thisPackage = inUStruct->GetOutermost();
   }
 
 private:
@@ -303,7 +300,14 @@ public:
     }
     auto descr = m_structs[name];
     descr->addRef(inClass);
-    // if (sameModule) UE_LOG(LogHaxeExtern,Log,TEXT("same module"));
+
+    auto super = inStruct->GetSuperStruct();
+    while (super != nullptr) {
+      if (super->IsA<UScriptStruct>()) {
+        this->touchStruct(Cast<UScriptStruct>(super), inClass);
+      }
+      super = super->GetSuperStruct();
+    }
   }
 
   /**
