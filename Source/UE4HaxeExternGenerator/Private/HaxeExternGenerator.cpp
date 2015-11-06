@@ -72,6 +72,14 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateStruct(s);
     }
+
+    UE_LOG(LogHaxeExtern,Log,TEXT("STARTING UENUMs"));
+    for (auto& uenum : m_types.getAllEnums()) {
+      UE_LOG(LogHaxeExtern,Log,TEXT("BEGIN"));
+      UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *uenum->uenum->GetName())
+      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      gen.generateEnum(uenum);
+    }
   }
 
   /** Name of the generator plugin, mostly for debuggind purposes */
@@ -290,7 +298,6 @@ void FHaxeGenerator::generateIncludeMetas(const NonClassDescriptor *inDesc) {
 }
 
 bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
-  static const FName NAME_ToolTip(TEXT("ToolTip"));
   auto hxType = inStruct->haxeType;
 
   if (hxType.pack.Num() > 0) {
@@ -327,6 +334,56 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
 }
 
 bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
+  auto uenum = inEnum->uenum;
+  auto hxType = inEnum->haxeType;
+  if (hxType.pack.Num() > 0) {
+    m_buf << TEXT("package ") << FString::Join(hxType.pack, TEXT(".")) << ";" << Newline() << Newline();
+  }
+
+  // comment
+  auto& comment = uenum->GetMetaData(NAME_ToolTip);
+  if (!comment.IsEmpty()) {
+    m_buf << Comment(comment);
+  }
+  // @:umodule
+  if (!hxType.module.IsEmpty()) {
+    m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
+  }
+  // @:glueCppIncludes
+  generateIncludeMetas(inEnum);
+  m_buf << TEXT("@:uextern extern ") << TEXT("enum ") << hxType.name;
+  
+  m_buf << Begin(TEXT(" {"));
+  for (int i = 0; i < uenum->NumEnums() - 1; i++) {
+    auto name = uenum->GetEnumName(i);
+    auto ecomment = uenum->GetMetaData(FName(*(name + TEXT(".") + TEXT("ToolTip"))));
+    auto displayName = uenum->GetMetaData(FName(*(name + TEXT(".") + TEXT("DisplayName"))));
+    if (!displayName.IsEmpty()) {
+      if (ecomment.IsEmpty()) {
+        ecomment = displayName;
+      } else {
+        ecomment += TEXT("\n@DisplayName ") + displayName;
+      }
+    }
+    if (!ecomment.IsEmpty()) {
+      m_buf << Comment(ecomment);
+    }
+
+    if (!displayName.IsEmpty()) {
+      m_buf << TEXT("@DisplayName(\"") << Escaped(displayName) << "\")" << Newline();
+    }
+    m_buf << name << TEXT(";") << Newline();
+  }
+
+  m_buf << End();
+
+  printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
+  // for (int32 enum_index = 0; enum_index < enum_p->NumEnums() - 1; ++enum_index)
+  //   {
+  //   FString enum_val_name = enum_p->GetEnumName(enum_index);
+  //   FString enum_val_full_name = enum_p->GenerateFullEnumName(*enum_val_name);
+  // LOG("ENUM %s -> %s", *uenum->GetName(), *uenum->GetPathName());
+  // uenum->NumEnums
   return true;
 }
 
