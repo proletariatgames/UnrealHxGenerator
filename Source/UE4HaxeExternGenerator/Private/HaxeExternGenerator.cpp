@@ -86,9 +86,12 @@ IMPLEMENT_MODULE(FHaxeExternGenerator, UE4HaxeExternGenerator)
 FString FHaxeExternGenerator::currentModule = FString();
 
 FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
+  static const TCHAR *Engineh = TEXT("Engine.h");
   if (inPath.IsEmpty()) {
     // this is a particularity of UHT - it sometimes adds no header path to some of the core UObjects
     return FString("CoreUObject.h");
+  } else if (inPath == Engineh) {
+    return Engineh;
   }
   int32 index = inPath.Find(TEXT("Public"), ESearchCase::IgnoreCase, ESearchDir::FromEnd, inPath.Len());
   if (index < 0) {
@@ -276,6 +279,16 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   return true;
 }
 
+void FHaxeGenerator::generateIncludeMetas(const NonClassDescriptor *inDesc) {
+  m_buf << TEXT("@:glueCppIncludes(");
+  auto first = true;
+  for (auto& header : inDesc->getHeaders()) {
+    if (first) first = false; else m_buf << TEXT(", ");
+    m_buf << TEXT("\"") << Escaped(getHeaderPath(inDesc->module->getPackage(), header)) << TEXT("\"");
+  }
+  m_buf << TEXT(")") << Newline();
+}
+
 bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   static const FName NAME_ToolTip(TEXT("ToolTip"));
   auto hxType = inStruct->haxeType;
@@ -295,7 +308,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
     m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
   }
   // @:glueCppIncludes
-  m_buf << TEXT("@:glueCppIncludes(\"") << Escaped(getHeaderPath(ustruct->GetOutermost(), inStruct->getHeader())) << TEXT("\")") << Newline();
+  generateIncludeMetas(inStruct);
   m_buf << TEXT("@:uextern extern ") << TEXT("class ") << hxType.name;
 
   auto superStruct = ustruct->GetSuperStruct();

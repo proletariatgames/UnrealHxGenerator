@@ -196,4 +196,5 @@ protected:
   static FString getHeaderPath(UPackage *inPack, const FString& inPath);
 
   void generateFields(UStruct *inStruct);
+  void generateIncludeMetas(const NonClassDescriptor *inDesc);
 };

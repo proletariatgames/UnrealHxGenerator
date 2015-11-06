@@ -63,6 +63,7 @@ flags = [
 # This path will only work on OS X, but extra paths that don't exist are not
 # harmful
 '-I',thispath + '/Source/UE4HaxeExternGenerator/Public',
+'-I',thispath + '/Source/UE4HaxeExternGenerator/Private',
 '-I',thispath + '/../../Source/Programs/UnrealHeaderTool/Public',
 '-D','PLATFORM_LINUX',
 '-D', "HACK_HEADER_GENERATOR=1",

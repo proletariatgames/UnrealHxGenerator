@@ -144,16 +144,29 @@ struct NonClassDescriptor {
     return false;
   }
 
-  FString getHeader() const {
+  TArray<FString> getHeaders() const {
+    TArray<FString> ret;
     for (auto m : sameModuleRefs) {
-      return m->header;
+      ret.Push(m->header);
+      return ret;
     }
     for (auto m : otherModuleRefs) {
-      return m->header;
+      ret.Push(m->header);
+      return ret;
     }
 
-    check(false);
-    return FString();
+    static const TCHAR *Engine = TEXT("/Script/Engine");
+    if (module->getPackage()->GetName() == Engine) {
+      ret.Push(TEXT("Engine.h"));
+      return ret;
+    }
+
+    for (auto header : module->headers) {
+      ret.Push(header);
+    }
+    ret.Sort();
+
+    return ret;
   }
 
 protected:
@@ -250,7 +263,17 @@ public:
     TFieldIterator<UProperty> props(inClass, EFieldIteratorFlags::ExcludeSuper);
     for (; props; ++props) {
       UProperty *prop = *props;
-      touchProperty(prop, cls);
+      touchProperty(prop, cls, false);
+    }
+
+    TFieldIterator<UFunction> funcs(inClass, EFieldIteratorFlags::ExcludeSuper);
+    for (; funcs; ++funcs) {
+      auto func = *funcs;
+      for (TFieldIterator<UProperty> args(func); args; ++args) {
+        auto arg = *args;
+        // nullptr because the type can be forward declared here
+        touchProperty(arg, cls, true);
+      }
     }
   }
 
@@ -263,12 +286,14 @@ public:
     return module;
   }
 
-  void touchProperty(UProperty *inProp, ClassDescriptor *inClass) {
+  void touchProperty(UProperty *inProp, ClassDescriptor *inClass, bool inMayForward) {
     // see UnrealType.h for all possible variations
     if (inProp->IsA<UStructProperty>()) {
       auto structProp = Cast<UStructProperty>(inProp);
-      if (!structProp->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
+      if (!inMayForward && !structProp->HasAnyPropertyFlags(CPF_ReturnParm | CPF_OutParm | CPF_ReferenceParm)) {
         this->touchStruct(structProp->Struct, inClass);
+      } else {
+        this->touchStruct(structProp->Struct, nullptr);
       }
     } else if (inProp->IsA<UNumericProperty>()) {
       auto numeric = Cast<UNumericProperty>(inProp);
@@ -279,7 +304,7 @@ public:
       }
     } else if (inProp->IsA<UArrayProperty>()) {
       auto prop = Cast<UArrayProperty>(inProp);
-      touchProperty(prop->Inner, inClass);
+      touchProperty(prop->Inner, inClass, inMayForward);
     }
   }
 
@@ -299,7 +324,8 @@ public:
       m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
     }
     auto descr = m_structs[name];
-    descr->addRef(inClass);
+    if (inClass != nullptr)
+      descr->addRef(inClass);
 
     auto super = inStruct->GetSuperStruct();
     while (super != nullptr) {
@@ -307,6 +333,12 @@ public:
         this->touchStruct(Cast<UScriptStruct>(super), inClass);
       }
       super = super->GetSuperStruct();
+    }
+
+    TFieldIterator<UProperty> props(inStruct, EFieldIteratorFlags::ExcludeSuper);
+    for (; props; ++props) {
+      UProperty *prop = *props;
+      touchProperty(prop, inClass, false);
     }
   }
 
@@ -321,8 +353,8 @@ public:
     }
     auto descr = m_enums[name];
     LOG("Haxe enum name: %s", *descr->haxeType.toString());
-    descr->addRef(inClass);
-    // if (sameModule) LOG("Same module %s", TEXT("YAY"));
+    if (inClass != nullptr)
+      descr->addRef(inClass);
   }
 
   ///////////////////////////////////////////////////////
