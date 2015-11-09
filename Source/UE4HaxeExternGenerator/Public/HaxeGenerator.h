@@ -104,7 +104,7 @@ public:
       this->newline();
     }
     this->begin(TEXT("/**"));
-    this->addNewlines(inText, false);
+    this->addNewlines(inText.Replace(TEXT("*/"), TEXT("*")), false);
     this->end(TEXT("**/"));
 
     return *this;
@@ -183,6 +183,10 @@ public:
   bool generateStruct(const StructDescriptor *inStruct);
 
   bool generateEnum(const EnumDescriptor *inEnum);
+
+  FString toString() {
+    return m_buf.toString();
+  }
 
 protected:
   bool writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType);
