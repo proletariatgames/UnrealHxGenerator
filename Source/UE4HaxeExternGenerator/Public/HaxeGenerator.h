@@ -40,7 +40,7 @@ private:
   FString m_indent;
   FString m_buf;
 
-  bool m_hasContent;
+  bool m_hasContent = false;
 
 public:
   FHelperBuf() {

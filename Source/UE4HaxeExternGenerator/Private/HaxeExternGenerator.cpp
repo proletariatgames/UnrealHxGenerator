@@ -270,8 +270,13 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   
   auto isInterface = hxType.kind == ETypeKind::KUInterface;
   auto uclass = inClass->uclass;
+  bool isNoExport = (uclass->ClassFlags & CLASS_NoExport);
   // comment
-  auto& comment = uclass->GetMetaData(NAME_ToolTip);
+  auto comment = uclass->GetMetaData(NAME_ToolTip);
+  if (isNoExport) {
+    comment = TEXT("WARNING: This types is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
+  }
+
   if (!comment.IsEmpty()) {
     m_buf << Comment(comment);
   }
@@ -301,7 +306,9 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   }
   m_buf << Begin(TEXT(" {"));
   {
-    this->generateFields(uclass);
+    if (!isNoExport) {
+      this->generateFields(uclass);
+    }
   }
   m_buf << End();
   printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
@@ -328,7 +335,12 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   
   auto ustruct = inStruct->ustruct;
   // comment
-  auto& comment = ustruct->GetMetaData(NAME_ToolTip);
+  bool isNoExport = (ustruct->StructFlags & STRUCT_NoExport) != 0;
+  auto comment = ustruct->GetMetaData(NAME_ToolTip);
+  if (isNoExport) {
+    comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
+  }
+
   if (!comment.IsEmpty()) {
     m_buf << Comment(comment);
   }
@@ -349,7 +361,9 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   m_buf << Begin(TEXT(" {"));
   {
     m_buf << TEXT("@:uname('new') public static function create():PHaxeCreated<") << hxType.toString() << TEXT(">;") << Newline();
-    this->generateFields(ustruct);
+    if (!isNoExport) {
+      this->generateFields(ustruct);
+    }
   }
   m_buf << End();
   printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
@@ -375,6 +389,12 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   }
   // @:glueCppIncludes
   generateIncludeMetas(inEnum);
+
+  m_buf << TEXT("@:uname(\"") << Escaped(uenum->CppType.Replace(TEXT("::"), TEXT("."))) << TEXT("\")") << Newline();
+  if (uenum->GetCppForm() == UEnum::ECppForm::EnumClass) {
+    m_buf << TEXT("@:class ");
+  }
+
   m_buf << TEXT("@:uextern extern ") << TEXT("enum ") << hxType.name;
   
   m_buf << Begin(TEXT(" {"));
