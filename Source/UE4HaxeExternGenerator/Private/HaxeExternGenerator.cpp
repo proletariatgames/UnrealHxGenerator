@@ -169,10 +169,10 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
     auto field = fields.Pop(false);
     if (field->IsA<UProperty>()) {
       auto prop = Cast<UProperty>(field);
-      FString type;
       if (prop->HasAnyPropertyFlags(CPF_Protected) && prop->IsA<UBoolProperty>()) {
         continue; // we cannot generate code for protected bit-fields
       }
+      FString type;
       if ((prop->HasAnyFlags(RF_Public) || prop->HasAnyPropertyFlags(CPF_Protected)) && upropType(prop, type)) {
         auto isEditorOnly = prop->HasAnyPropertyFlags(CPF_EditorOnly);
         if (isEditorOnly != wasEditorOnly) {
@@ -187,7 +187,11 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
         if (!propComment.IsEmpty()) {
           m_buf << Comment(propComment);
         }
-        m_buf << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) << prop->GetNameCPP();
+        auto readOnly = prop->HasAnyPropertyFlags(CPF_ConstParm);
+        m_buf 
+          << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) 
+          << (readOnly ? TEXT("(default,never)") : TEXT(""))
+          << prop->GetNameCPP();
         // TODO see if the property is read-only; this might not be supported by UHT atm?
         // if (prop->HasAnyPropertyFlags( CPF_Con
         m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
@@ -435,6 +439,10 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
 }
 
 bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType) {
+  if (inProp->ArrayDim > 1) {
+    // TODO: support array dimensions (e.g. SomeType SomeProp[8])
+    return false;
+  }
   auto end = FString();
   // check all the flags that interest us
   // UStruct pointers aren't supported; so we're left either with PRef, PStruct and Const to check
@@ -508,8 +516,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       LOG("(uclass) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
       return false;
     }
-    outType += descr->haxeType.toString();
-    return true;
+    return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
   } else if (inProp->IsA<UNumericProperty>()) {
     auto numeric = Cast<UNumericProperty>(inProp);
     UEnum *uenum = numeric->GetIntPropertyEnum();
