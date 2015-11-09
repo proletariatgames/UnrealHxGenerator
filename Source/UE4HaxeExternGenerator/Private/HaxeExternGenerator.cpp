@@ -170,6 +170,9 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
     if (field->IsA<UProperty>()) {
       auto prop = Cast<UProperty>(field);
       FString type;
+      if (prop->HasAnyPropertyFlags(CPF_Protected) && prop->IsA<UBoolProperty>()) {
+        continue; // we cannot generate code for protected bit-fields
+      }
       if ((prop->HasAnyFlags(RF_Public) || prop->HasAnyPropertyFlags(CPF_Protected)) && upropType(prop, type)) {
         auto isEditorOnly = prop->HasAnyPropertyFlags(CPF_EditorOnly);
         if (isEditorOnly != wasEditorOnly) {
