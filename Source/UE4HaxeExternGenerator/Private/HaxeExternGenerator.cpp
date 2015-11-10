@@ -363,7 +363,9 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   const StructDescriptor *super = nullptr;
   if (nullptr != superStruct) {
     super = m_haxeTypes.getDescriptor((UScriptStruct *) superStruct);
-    m_buf << " extends " << super->haxeType.toString();
+    if (nullptr != super) {
+      m_buf << " extends " << super->haxeType.toString();
+    }
   }
   m_buf << Begin(TEXT(" {"));
   {

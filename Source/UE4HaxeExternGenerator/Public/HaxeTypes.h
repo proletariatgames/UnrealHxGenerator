@@ -381,8 +381,18 @@ public:
     return e->haxeType;
   }
 
+  static bool isBadType(const FString& inTypeName) {
+    static const FString materialInput = TEXT("MaterialInput");
+    return inTypeName == materialInput;
+  }
+
   const FHaxeTypeRef& toHaxeType(UScriptStruct *inStruct) {
     FString name = inStruct->GetName();
+    // deal with some types that can't be generated
+    if (isBadType(name)) {
+      return nulltype;
+    }
+
     if (!m_structs.Contains(name)) {
       return nulltype;
     }
@@ -414,6 +424,10 @@ public:
   const StructDescriptor *getDescriptor(UScriptStruct *inStruct) {
     if (inStruct == nullptr) return nullptr;
     FString name = inStruct->GetName();
+    if (isBadType(name)) {
+      return nullptr;
+    }
+
     if (!m_structs.Contains(name)) {
       return nullptr;
     }
@@ -440,7 +454,9 @@ public:
   TArray<const StructDescriptor *> getAllStructs() {
     TArray<const StructDescriptor *> ret;
     for (auto& elem : m_structs) {
-      ret.Add(elem.Value);
+      if (!isBadType(elem.Key)) {
+        ret.Add(elem.Value);
+      }
     }
     return ret;
   }
