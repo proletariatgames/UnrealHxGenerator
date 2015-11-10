@@ -486,6 +486,15 @@ bool FHaxeGenerator::writeBasicWithModifiers(const FString &inName, UProperty *i
   return true;
 }
 
+static bool canBuildTArrayProp(FString inInner) {
+  // HACK: we need this since some types struggle with some operators (e.g. set operator)
+  //       we'll need to find a better way to deal with this, but for now we'll just not include that into the built
+  if (inInner.Contains(TEXT("FStaticMeshComponentLODInfo"), ESearchCase::CaseSensitive, ESearchDir::FromStart)) {
+    return false;
+  }
+  return true;
+}
+
 bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
   // from the most common to the least
   if (inProp->IsA<UStructProperty>()) {
@@ -563,7 +572,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     FString inner;
     if (!upropType(prop->Inner, inner))
       return false;
-    return writeWithModifiers(TEXT("unreal.TArray<") + inner + TEXT(">"), inProp, outType);
+    return canBuildTArrayProp(inner) && writeWithModifiers(TEXT("unreal.TArray<") + inner + TEXT(">"), inProp, outType);
   }
   // uenum
   // uinterface
