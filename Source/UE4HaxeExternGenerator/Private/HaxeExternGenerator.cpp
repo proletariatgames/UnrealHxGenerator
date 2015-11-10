@@ -367,7 +367,6 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   }
   m_buf << Begin(TEXT(" {"));
   {
-    m_buf << TEXT("@:uname('new') public static function create():PHaxeCreated<") << hxType.toString() << TEXT(">;") << Newline();
     if (!isNoExport) {
       this->generateFields(ustruct);
     }
