@@ -207,7 +207,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
       }
     } else if (field->IsA<UFunction>()) {
       auto func = Cast<UFunction>(field);
-      if ((uclass != nullptr && func->GetOwnerClass() != uclass) || func->GetOwnerStruct() != inStruct) {
+      if ((uclass != nullptr && func->GetOwnerClass() != uclass) || (uclass == nullptr && func->GetOwnerStruct() != inStruct)) {
         // we don't need to generate overridden functions' glue code
         continue;
       } else if (func->HasAnyFunctionFlags(FUNC_Private)) {

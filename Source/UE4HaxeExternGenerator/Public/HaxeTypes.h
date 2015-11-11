@@ -238,6 +238,10 @@ private:
   }
 };
 
+// struct DelegateDescriptor : public NonClassDescriptor {
+//   UDelegate *udelegate;
+// };
+
 class FHaxeTypes {
 private:
   TMap<FString, ClassDescriptor *> m_classes;
