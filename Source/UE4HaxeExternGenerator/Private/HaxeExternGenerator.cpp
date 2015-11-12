@@ -207,13 +207,16 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
       }
     } else if (field->IsA<UFunction>()) {
       auto func = Cast<UFunction>(field);
-      if ((uclass != nullptr && func->GetOwnerClass() != uclass) || (uclass == nullptr && func->GetOwnerStruct() != inStruct)) {
+      LOG("Starting to generate %s (flags %x)", *func->GetName(), func->FunctionFlags);
+      if (this->m_generatedFields.Contains(func->GetName())) {
+        LOG("continuing %s %s", *uclass->GetName(), *func->GetOwnerClass()->GetName());
         // we don't need to generate overridden functions' glue code
         continue;
       } else if (func->HasAnyFunctionFlags(FUNC_Private)) {
         // we can't access private functions
         continue;
       }
+      this->m_generatedFields.Add(func->GetName());
       // we need to create a local buffer because we will only know if we should
       // generate this function in the end of its processing
       FHelperBuf curBuf;
@@ -276,6 +279,13 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
   }
 }
 
+void FHaxeGenerator::collectSuperFields(UStruct *inSuper) {
+  for (TFieldIterator<UField> fields(inSuper, EFieldIteratorFlags::IncludeSuper); fields; ++fields) {
+    auto field = *fields;
+    this->m_generatedFields.Add(field->GetName());
+  }
+}
+
 bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   auto hxType = inClass->haxeType;
   m_buf << Comment(prelude);
@@ -307,6 +317,7 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
     auto superUClass = uclass->GetSuperClass();
     const ClassDescriptor *super = nullptr;
     if (nullptr != superUClass) {
+      this->collectSuperFields(superUClass);
       super = m_haxeTypes.getDescriptor(superUClass);
       m_buf << " extends " << super->haxeType.toString();
     }
@@ -324,6 +335,10 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   {
     if (!isNoExport) {
       this->generateFields(uclass);
+    }
+    for (auto& impl : uclass->Interfaces) {
+      m_buf << TEXT("// ") << impl.Class->GetName() << TEXT(" interface implementation") << Newline();
+      this->generateFields(impl.Class);
     }
   }
   m_buf << End();
@@ -497,10 +512,13 @@ bool FHaxeGenerator::writeBasicWithModifiers(const FString &inName, UProperty *i
   return true;
 }
 
-static bool canBuildTArrayProp(FString inInner) {
+static bool canBuildTArrayProp(FString inInner, UProperty *inProp) {
   // HACK: we need this since some types struggle with some operators (e.g. set operator)
   //       we'll need to find a better way to deal with this, but for now we'll just not include that into the built
   if (inInner.Contains(TEXT("FStaticMeshComponentLODInfo"), ESearchCase::CaseSensitive, ESearchDir::FromStart)) {
+    return false;
+  } else if (inProp->IsA<UNumericProperty>() && Cast<UNumericProperty>(inProp)->GetIntPropertyEnum() != nullptr) {
+    // TArray<Enum> is not supported because UHT doesn't let us know if the C++ was declared as either TArray<Enum> or TArray<TEnumAsByte<Enum>>
     return false;
   }
   return true;
@@ -583,7 +601,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     FString inner;
     if (!upropType(prop->Inner, inner))
       return false;
-    return canBuildTArrayProp(inner) && writeWithModifiers(TEXT("unreal.TArray<") + inner + TEXT(">"), inProp, outType);
+    return canBuildTArrayProp(inner, prop->Inner) && writeWithModifiers(TEXT("unreal.TArray<") + inner + TEXT(">"), inProp, outType);
   }
   // uenum
   // uinterface

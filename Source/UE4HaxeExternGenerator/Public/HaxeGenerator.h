@@ -169,7 +169,9 @@ private:
   FHaxeTypes& m_haxeTypes;
   const FString& m_basePath;
   bool m_hasStructs;
+  TSet<FString> m_generatedFields;
 
+  void collectSuperFields(UStruct *inSuper);
 public: 
   FHaxeGenerator(FHaxeTypes& inTypes, const FString& inBasePath) : 
     m_buf(FHelperBuf()),
