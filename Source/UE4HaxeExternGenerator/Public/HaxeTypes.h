@@ -252,13 +252,37 @@ private:
 
   const static FHaxeTypeRef nulltype;
 
+  FString m_pluginPath;
+
+  void deleteFileIfExists(FHaxeTypeRef haxeType) {
+    auto outPath = this->m_pluginPath / TEXT("Haxe/Externs") / FString::Join(haxeType.pack, TEXT("/")) / haxeType.name + TEXT(".hx");
+    if (FPlatformFileManager::Get().GetPlatformFile().FileExists(*outPath)) {
+      LOG("Deleting previously generated file %s", *outPath);
+      FPlatformFileManager::Get().GetPlatformFile().DeleteFile(*outPath);
+    }
+  }
+
 public:
+  FHaxeTypes(FString inPluginPath) : m_pluginPath(inPluginPath)
+  {
+  }
+
+  FHaxeTypes() {}
+
   void touchClass(UClass *inClass, const FString &inHeader, const FString &inModule) {
     if (m_classes.Contains(inClass->GetName())) {
       return; // we've already touched this type; probably it's UObject which gets added every time (!)
     }
+    auto shouldNotExport = !inClass->HasAnyClassFlags( CLASS_RequiredAPI | CLASS_MinimalAPI ) && !inHeader.IsEmpty() && inClass->GetName() != TEXT("Object");
+    if (shouldNotExport) {
+      LOG("Class %s is not required/minimal (%s %s)", *inClass->GetName(), *inHeader, *inModule);
+      // don't touch it. we can't really do anything about that - it can't be exported
+      deleteFileIfExists(ClassDescriptor(inClass,inHeader).haxeType);
+    }
     ClassDescriptor *cls = new ClassDescriptor(inClass, inHeader);
-    m_classes.Add(inClass->GetName(), cls);
+    if (!shouldNotExport) {
+      m_classes.Add(inClass->GetName(), cls);
+    }
     LOG("Class name %s", *cls->haxeType.toString());
     auto module = getModule(inClass->GetOuterUPackage());
     module->touch(cls, inModule);
@@ -323,13 +347,30 @@ public:
     // UE_LOG(LogHaxeExtern,Log,TEXT("Struct %s dependson %s"), *inStruct->GetName(), *inClass->uclass->GetName());
     // UE_LOG(LogHaxeExtern,Log,TEXT("prefix %s"), inStruct->GetPrefixCPP());
     // inStruct->StructMacroDeclaredLineNumber
-    auto name = inStruct->GetName();
-    if (!m_structs.Contains(name)) {
-      m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
+    bool shouldExport;
+    {
+      auto superStruct = (UScriptStruct *) inStruct->GetSuperStruct();
+      shouldExport = (inStruct->StructFlags & (STRUCT_RequiredAPI | STRUCT_NoExport)) != 0;
+      while (!shouldExport && superStruct != nullptr) {
+        shouldExport = (superStruct->StructFlags & (STRUCT_RequiredAPI | STRUCT_NoExport)) != 0;
+        superStruct = (UScriptStruct *) superStruct->GetSuperStruct();
+      }
     }
-    auto descr = m_structs[name];
-    if (inClass != nullptr)
-      descr->addRef(inClass);
+
+    if (!shouldExport) {
+      LOG("Struct %s is not required/minimal", *inStruct->GetName());
+      // don't touch it. we can't really do anything about that - it can't be exported
+      deleteFileIfExists(StructDescriptor(inStruct,this->getModule(inStruct->GetOutermost())).haxeType);
+    }
+    if (shouldExport) {
+      auto name = inStruct->GetName();
+      if (!m_structs.Contains(name)) {
+        m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
+      }
+      auto descr = m_structs[name];
+      if (inClass != nullptr)
+        descr->addRef(inClass);
+    }
 
     auto super = inStruct->GetSuperStruct();
     while (super != nullptr) {

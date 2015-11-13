@@ -46,6 +46,7 @@ public:
   virtual void Initialize(const FString& RootLocalPath, const FString& RootBuildPath, const FString& OutputDirectory, const FString& IncludeBase) override {
     UE_LOG(LogHaxeExtern,Log,TEXT("INITIALIZE %s %s %s %s"), *RootLocalPath, *RootBuildPath, *OutputDirectory, *IncludeBase);
     this->m_pluginPath = IncludeBase + TEXT("/../../");
+    this->m_types = FHaxeTypes(m_pluginPath);
   }
 
   /** Exports a single class. May be called multiple times for the same class (as UHT processes the entire hierarchy inside modules. */
@@ -297,10 +298,14 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   auto isInterface = hxType.kind == ETypeKind::KUInterface;
   auto uclass = inClass->uclass;
   bool isNoExport = (uclass->ClassFlags & CLASS_NoExport);
+  bool isMinimalApi = (uclass->ClassFlags & CLASS_MinimalAPI);
   // comment
   auto comment = uclass->GetMetaData(NAME_ToolTip);
   if (isNoExport) {
-    comment = TEXT("WARNING: This types is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
+    comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
+  }
+  if (isMinimalApi) {
+    comment = TEXT("WARNING: This type was defined as MinimalAPI on its declaration. Because of that, its properties/methods are inaccessible\n\n") + comment;
   }
 
   if (!comment.IsEmpty()) {
@@ -317,9 +322,21 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
     auto superUClass = uclass->GetSuperClass();
     const ClassDescriptor *super = nullptr;
     if (nullptr != superUClass) {
-      this->collectSuperFields(superUClass);
       super = m_haxeTypes.getDescriptor(superUClass);
-      m_buf << " extends " << super->haxeType.toString();
+      while (super == nullptr) {
+        // if superclass was not exported, try supers' super
+        superUClass = superUClass ->GetSuperClass();
+        if (superUClass != nullptr) {
+          super = m_haxeTypes.getDescriptor(superUClass);
+        } else {
+          break;
+        }
+      }
+
+      if (super != nullptr) {
+        this->collectSuperFields(superUClass);
+        m_buf << " extends " << super->haxeType.toString();
+      }
     }
   }
 
@@ -327,13 +344,15 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   // for now it doesn't seem that Unreal supports interfaces that extend other interfaces, but let's make ourselves ready for it
   for (auto& impl : uclass->Interfaces) {
     auto ifaceType = m_haxeTypes.getDescriptor(impl.Class);
-    if (ifaceType->haxeType.kind != ETypeKind::KNone) {
-      m_buf << implements << ifaceType->haxeType.toString();
+    if (ifaceType != nullptr) {
+      if (ifaceType->haxeType.kind != ETypeKind::KNone) {
+        m_buf << implements << ifaceType->haxeType.toString();
+      }
     }
   }
   m_buf << Begin(TEXT(" {"));
   {
-    if (!isNoExport) {
+    if (!isNoExport && !isMinimalApi) {
       this->generateFields(uclass);
     }
     for (auto& impl : uclass->Interfaces) {
@@ -367,6 +386,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   auto ustruct = inStruct->ustruct;
   // comment
   bool isNoExport = (ustruct->StructFlags & STRUCT_NoExport) != 0;
+  isNoExport = isNoExport || ((ustruct->StructFlags & STRUCT_RequiredAPI) == 0);
   auto comment = ustruct->GetMetaData(NAME_ToolTip);
   if (isNoExport) {
     comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
@@ -381,12 +401,23 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   }
   // @:glueCppIncludes
   generateIncludeMetas(inStruct);
+  if (isNoExport) {
+    m_buf << TEXT("@:noCopy @:noEquals ");
+  }
   m_buf << TEXT("@:uextern extern ") << TEXT("class ") << hxType.name;
 
   auto superStruct = ustruct->GetSuperStruct();
   const StructDescriptor *super = nullptr;
   if (nullptr != superStruct) {
     super = m_haxeTypes.getDescriptor((UScriptStruct *) superStruct);
+    while (nullptr == super) {
+      superStruct = superStruct->GetSuperStruct();
+      if (superStruct != nullptr) {
+        super = m_haxeTypes.getDescriptor( (UScriptStruct *) superStruct );
+      } else {
+        break;
+      }
+    }
     if (nullptr != super) {
       m_buf << " extends " << super->haxeType.toString();
     }
