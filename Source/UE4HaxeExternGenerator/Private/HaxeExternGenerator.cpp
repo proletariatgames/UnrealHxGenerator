@@ -185,6 +185,11 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         if (!propComment.IsEmpty()) {
           m_buf << Comment(propComment);
         }
+
+        if (prop->HasAnyPropertyFlags( CPF_Deprecated )) {
+          // properties can still be accessed without annoying warnings. So let's generate them and add @:deprecated on the Haxe side
+          m_buf << "@:deprecated ";
+        }
         auto readOnly = prop->HasAnyPropertyFlags(CPF_ConstParm);
         m_buf 
           << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var ")) 
@@ -199,6 +204,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         continue;
       }
       auto func = Cast<UFunction>(field);
+      // if (func->HasAnyFunctionFlags( FUNC_COMBINE
       LOG("Starting to generate %s (flags %x)", *func->GetName(), func->FunctionFlags);
       if (this->m_generatedFields.Contains(func->GetName())) {
         LOG("continuing %s %s", *uclass->GetName(), *func->GetOwnerClass()->GetName());
