@@ -30,28 +30,24 @@ public:
 
   /** Returns true if this plugin supports exporting scripts for the specified target. This should handle game as well as editor target names */
   virtual bool SupportsTarget(const FString& TargetName) const override { 
-    UE_LOG(LogHaxeExtern,Log,TEXT("SUPPORTS %s"), *TargetName);
     TCHAR env[2];
     FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"), env, 2);
     return *env;
   }
   /** Returns true if this plugin supports exporting scripts for the specified module */
   virtual bool ShouldExportClassesForModule(const FString& ModuleName, EBuildModuleType::Type ModuleType, const FString& ModuleGeneratedIncludeDirectory) const override {
-    UE_LOG(LogHaxeExtern,Log,TEXT("SHOULD EXPORT %s (inc %s)"), *ModuleName, *ModuleGeneratedIncludeDirectory);
     currentModule = ModuleName;
     return true;
   }
 
   /** Initializes this plugin with build information */
   virtual void Initialize(const FString& RootLocalPath, const FString& RootBuildPath, const FString& OutputDirectory, const FString& IncludeBase) override {
-    UE_LOG(LogHaxeExtern,Log,TEXT("INITIALIZE %s %s %s %s"), *RootLocalPath, *RootBuildPath, *OutputDirectory, *IncludeBase);
     this->m_pluginPath = IncludeBase + TEXT("/../../");
     this->m_types = FHaxeTypes(m_pluginPath);
   }
 
   /** Exports a single class. May be called multiple times for the same class (as UHT processes the entire hierarchy inside modules. */
   virtual void ExportClass(class UClass* Class, const FString& SourceHeaderFilename, const FString& GeneratedHeaderFilename, bool bHasChanged) override {
-    UE_LOG(LogHaxeExtern,Log,TEXT("EXPORT CLASS %s %s %s %s"), *(Class->GetDesc()), *SourceHeaderFilename, *GeneratedHeaderFilename, bHasChanged ? TEXT("CHANGED") : TEXT("NOT CHANGED"));
     FString comment = Class->GetMetaData(NAME_ToolTip);
     m_types.touchClass(Class, SourceHeaderFilename, currentModule);
   }
@@ -71,28 +67,20 @@ public:
 
   /** Called once all classes have been exported */
   virtual void FinishExport() override {
-    UE_LOG(LogHaxeExtern,Log,TEXT("FINISH_EXPORT 1"));
     // now start generating
     for (auto& cls : m_types.getAllClasses()) {
-      UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *cls->uclass->GetName())
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateClass(cls);
       saveFile(cls->haxeType, gen.toString());
     }
 
-    UE_LOG(LogHaxeExtern,Log,TEXT("STARTING USTRUCTS"));
     for (auto& s : m_types.getAllStructs()) {
-      UE_LOG(LogHaxeExtern,Log,TEXT("BEGIN"));
-      UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *s->ustruct->GetName())
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateStruct(s);
       saveFile(s->haxeType, gen.toString());
     }
 
-    UE_LOG(LogHaxeExtern,Log,TEXT("STARTING UENUMs"));
     for (auto& uenum : m_types.getAllEnums()) {
-      UE_LOG(LogHaxeExtern,Log,TEXT("BEGIN"));
-      UE_LOG(LogHaxeExtern,Log,TEXT("got %s"), *uenum->uenum->GetName())
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateEnum(uenum);
       saveFile(uenum->haxeType, gen.toString());
