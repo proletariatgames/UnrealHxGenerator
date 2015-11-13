@@ -273,16 +273,8 @@ public:
     if (m_classes.Contains(inClass->GetName())) {
       return; // we've already touched this type; probably it's UObject which gets added every time (!)
     }
-    auto shouldNotExport = !inClass->HasAnyClassFlags( CLASS_RequiredAPI | CLASS_MinimalAPI ) && !inHeader.IsEmpty() && inClass->GetName() != TEXT("Object");
-    if (shouldNotExport) {
-      LOG("Class %s is not required/minimal (%s %s)", *inClass->GetName(), *inHeader, *inModule);
-      // don't touch it. we can't really do anything about that - it can't be exported
-      deleteFileIfExists(ClassDescriptor(inClass,inHeader).haxeType);
-    }
     ClassDescriptor *cls = new ClassDescriptor(inClass, inHeader);
-    if (!shouldNotExport) {
-      m_classes.Add(inClass->GetName(), cls);
-    }
+    m_classes.Add(inClass->GetName(), cls);
     LOG("Class name %s", *cls->haxeType.toString());
     auto module = getModule(inClass->GetOuterUPackage());
     module->touch(cls, inModule);
@@ -344,33 +336,13 @@ public:
    * that has included its entire definition
    **/
   void touchStruct(UScriptStruct *inStruct, ClassDescriptor *inClass) {
-    // UE_LOG(LogHaxeExtern,Log,TEXT("Struct %s dependson %s"), *inStruct->GetName(), *inClass->uclass->GetName());
-    // UE_LOG(LogHaxeExtern,Log,TEXT("prefix %s"), inStruct->GetPrefixCPP());
-    // inStruct->StructMacroDeclaredLineNumber
-    bool shouldExport;
-    {
-      auto superStruct = (UScriptStruct *) inStruct->GetSuperStruct();
-      shouldExport = (inStruct->StructFlags & (STRUCT_RequiredAPI | STRUCT_NoExport)) != 0;
-      while (!shouldExport && superStruct != nullptr) {
-        shouldExport = (superStruct->StructFlags & (STRUCT_RequiredAPI | STRUCT_NoExport)) != 0;
-        superStruct = (UScriptStruct *) superStruct->GetSuperStruct();
-      }
+    auto name = inStruct->GetName();
+    if (!m_structs.Contains(name)) {
+      m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
     }
-
-    if (!shouldExport) {
-      LOG("Struct %s is not required/minimal", *inStruct->GetName());
-      // don't touch it. we can't really do anything about that - it can't be exported
-      deleteFileIfExists(StructDescriptor(inStruct,this->getModule(inStruct->GetOutermost())).haxeType);
-    }
-    if (shouldExport) {
-      auto name = inStruct->GetName();
-      if (!m_structs.Contains(name)) {
-        m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
-      }
-      auto descr = m_structs[name];
-      if (inClass != nullptr)
-        descr->addRef(inClass);
-    }
+    auto descr = m_structs[name];
+    if (inClass != nullptr)
+      descr->addRef(inClass);
 
     auto super = inStruct->GetSuperStruct();
     while (super != nullptr) {

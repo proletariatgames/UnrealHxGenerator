@@ -201,6 +201,6 @@ protected:
 
   static FString getHeaderPath(UPackage *inPack, const FString& inPath);
 
-  void generateFields(UStruct *inStruct);
+  void generateFields(UStruct *inStruct, bool onlyProps);
   void generateIncludeMetas(const NonClassDescriptor *inDesc);
 };

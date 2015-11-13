@@ -164,7 +164,7 @@ FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
   return FString();
 }
 
-void FHaxeGenerator::generateFields(UStruct *inStruct) {
+void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
   UClass *uclass = nullptr;
   if (inStruct->IsA<UClass>()) {
     uclass = Cast<UClass>(inStruct);
@@ -207,6 +207,9 @@ void FHaxeGenerator::generateFields(UStruct *inStruct) {
         m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
       }
     } else if (field->IsA<UFunction>()) {
+      if (onlyProps) {
+        continue;
+      }
       auto func = Cast<UFunction>(field);
       LOG("Starting to generate %s (flags %x)", *func->GetName(), func->FunctionFlags);
       if (this->m_generatedFields.Contains(func->GetName())) {
@@ -298,14 +301,17 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   auto isInterface = hxType.kind == ETypeKind::KUInterface;
   auto uclass = inClass->uclass;
   bool isNoExport = (uclass->ClassFlags & CLASS_NoExport);
-  bool isMinimalApi = (uclass->ClassFlags & CLASS_MinimalAPI);
+  bool isMinimalAPI = (uclass->ClassFlags & CLASS_MinimalAPI);
+  auto shouldNotExport = isMinimalAPI || (!uclass->HasAnyClassFlags( CLASS_RequiredAPI | CLASS_MinimalAPI ) && !inClass->header.IsEmpty() && uclass->GetName() != TEXT("Object"));
   // comment
   auto comment = uclass->GetMetaData(NAME_ToolTip);
   if (isNoExport) {
     comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
   }
-  if (isMinimalApi) {
+  if (isMinimalAPI) {
     comment = TEXT("WARNING: This type was defined as MinimalAPI on its declaration. Because of that, its properties/methods are inaccessible\n\n") + comment;
+  } else if (shouldNotExport) {
+    comment = TEXT("WARNING: This type was not defined as DLL export on its declaration. Because of that, its properties/methods are inaccessible\n\n") + comment;
   }
 
   if (!comment.IsEmpty()) {
@@ -317,6 +323,10 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   }
   // @:glueCppIncludes
   m_buf << TEXT("@:glueCppIncludes(\"") << Escaped(getHeaderPath(inClass->uclass->GetOuterUPackage(), inClass->header)) << TEXT("\")") << Newline();
+  if (shouldNotExport && !isMinimalAPI) {
+    m_buf << TEXT("@:noClass ");
+  }
+
   m_buf << TEXT("@:uextern extern ") << (isInterface ? TEXT("interface ") : TEXT("class ")) << hxType.name;
   if (!isInterface) {
     auto superUClass = uclass->GetSuperClass();
@@ -352,8 +362,8 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   }
   m_buf << Begin(TEXT(" {"));
   {
-    if (!isNoExport && !isMinimalApi) {
-      this->generateFields(uclass);
+    if (!isNoExport) {
+      this->generateFields(uclass, shouldNotExport);
     }
     for (auto& impl : uclass->Interfaces) {
       m_buf << TEXT("// ") << impl.Class->GetName() << TEXT(" interface implementation") << Newline();
@@ -386,9 +396,9 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   auto ustruct = inStruct->ustruct;
   // comment
   bool isNoExport = (ustruct->StructFlags & STRUCT_NoExport) != 0;
-  isNoExport = isNoExport || ((ustruct->StructFlags & STRUCT_RequiredAPI) == 0);
+  auto isNotRequired = (ustruct->StructFlags & STRUCT_RequiredAPI) == 0;
   auto comment = ustruct->GetMetaData(NAME_ToolTip);
-  if (isNoExport) {
+  if (isNoExport || isNotRequired) {
     comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
   }
 
@@ -401,7 +411,8 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   }
   // @:glueCppIncludes
   generateIncludeMetas(inStruct);
-  if (isNoExport) {
+  if (isNotRequired) {
+    // we don't know if == or the copy constructors are inline or not
     m_buf << TEXT("@:noCopy @:noEquals ");
   }
   m_buf << TEXT("@:uextern extern ") << TEXT("class ") << hxType.name;
@@ -425,7 +436,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   m_buf << Begin(TEXT(" {"));
   {
     if (!isNoExport) {
-      this->generateFields(ustruct);
+      this->generateFields(ustruct, isNotRequired);
     }
   }
   m_buf << End();
