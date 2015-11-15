@@ -112,12 +112,11 @@ IMPLEMENT_MODULE(FHaxeExternGenerator, UE4HaxeExternGenerator)
 FString FHaxeExternGenerator::currentModule = FString();
 
 FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
-  static const TCHAR *Engineh = TEXT("Engine.h");
   if (inPath.IsEmpty()) {
     // this is a particularity of UHT - it sometimes adds no header path to some of the core UObjects
     return FString("CoreUObject.h");
-  } else if (inPath == Engineh) {
-    return Engineh;
+  } else if (!inPath.StartsWith(TEXT("/"))) {
+    return inPath;
   }
   int32 index = inPath.Find(TEXT("Public"), ESearchCase::IgnoreCase, ESearchDir::FromEnd, inPath.Len());
   if (index < 0) {
@@ -210,8 +209,9 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         LOG("continuing %s %s", *uclass->GetName(), *func->GetOwnerClass()->GetName());
         // we don't need to generate overridden functions' glue code
         continue;
-      } else if (func->HasAnyFunctionFlags(FUNC_Private)) {
+      } else if (func->HasAnyFunctionFlags(FUNC_Private | FUNC_Delegate)) {
         // we can't access private functions
+        // Delegate signatures are a weird piece of code that don't seem to be exported
         continue;
       }
       this->m_generatedFields.Add(func->GetName());

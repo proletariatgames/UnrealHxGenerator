@@ -146,6 +146,11 @@ struct NonClassDescriptor {
 
   TArray<FString> getHeaders() const {
     TArray<FString> ret;
+    if (module->moduleName == TEXT("UMG")) {
+      ret.Push(TEXT("UMG.h"));
+      return ret;
+    }
+
     for (auto m : sameModuleRefs) {
       ret.Push(m->header);
       return ret;
@@ -273,7 +278,15 @@ public:
     if (m_classes.Contains(inClass->GetName())) {
       return; // we've already touched this type; probably it's UObject which gets added every time (!)
     }
-    ClassDescriptor *cls = new ClassDescriptor(inClass, inHeader);
+    FString header;
+    if (inModule == TEXT("UMG")) {
+      LOG("Module UMG %s", *inModule);
+      static const FString umgHeader = TEXT("UMG.h");
+      header = umgHeader;
+    } else {
+      header = inHeader;
+    }
+    ClassDescriptor *cls = new ClassDescriptor(inClass, header);
     m_classes.Add(inClass->GetName(), cls);
     LOG("Class name %s", *cls->haxeType.toString());
     auto module = getModule(inClass->GetOuterUPackage());
