@@ -190,6 +190,8 @@ public:
     return m_buf.toString();
   }
 
+  static FString getHeaderPath(UPackage *inPack, const FString& inPath);
+
 protected:
   bool writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType);
 
@@ -198,8 +200,6 @@ protected:
   // Gets the Haxe representation for a `UProperty` type. This is used both for uproperties and for ufunction arguments
   // Returns an empty string if the type is not supported
   bool upropType(UProperty* inProp, FString &outType);
-
-  static FString getHeaderPath(UPackage *inPack, const FString& inPath);
 
   void generateFields(UStruct *inStruct, bool onlyProps);
   void generateIncludeMetas(const NonClassDescriptor *inDesc);

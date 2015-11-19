@@ -104,6 +104,7 @@ private:
 
 public:
   TSet<FString> headers;
+  TArray<FString> headerOrder;
   FString moduleName;
 
   ModuleDescriptor(UPackage *inPackage) :
@@ -113,7 +114,10 @@ public:
 
   void touch(ClassDescriptor *inClass, FString inModuleName) {
     this->m_classes.Push(inClass);
-    this->headers.Add(inClass->header);
+    if (!this->headers.Contains(inClass->header)) {
+      this->headers.Add(inClass->header);
+      this->headerOrder.Push(inClass->header);
+    }
 
     if (this->moduleName.IsEmpty())
       this->moduleName = inModuleName;
@@ -465,6 +469,14 @@ public:
     return m_structs[name];
   }
 
+  TArray<const ModuleDescriptor *> getAllModules() {
+    TArray<const ModuleDescriptor *> ret;
+    for (auto& elem : m_upackageToModule) {
+      ret.Add(elem.Value);
+    }
+    return ret;
+  }
+
   TArray<const ClassDescriptor *> getAllClasses() {
     TArray<const ClassDescriptor *> ret;
     for (auto& elem : m_classes) {
@@ -499,6 +511,9 @@ public:
       delete elem.Value;
     }
     for (auto& elem : m_classes) {
+      delete elem.Value;
+    }
+    for (auto& elem : m_upackageToModule) {
       delete elem.Value;
     }
   }
