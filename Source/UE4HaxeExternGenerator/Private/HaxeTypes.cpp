@@ -1,3 +1,5 @@
+#include "IHaxeExternGenerator.h"
 #include "HaxeTypes.h"
+#include "HaxeGenerator.h"
 
-const FHaxeTypeRef FHaxeTypes::nulltype = FHaxeGenerator("", ETypeKind::KNone);
+const FHaxeTypeRef FHaxeTypes::nulltype = FHaxeTypeRef("", ETypeKind::KNone);

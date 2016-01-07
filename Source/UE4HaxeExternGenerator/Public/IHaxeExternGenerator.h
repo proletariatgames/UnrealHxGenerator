@@ -2,6 +2,7 @@
 
 #include "IScriptGeneratorPluginInterface.h"
 #include "Modules/ModuleManager.h"
+#include <CoreUObject.h>
 #include <cstdio>
 
 class IHaxeExternGenerator : public IScriptGeneratorPluginInterface
