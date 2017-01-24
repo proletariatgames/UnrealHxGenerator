@@ -6,7 +6,6 @@
 
 DEFINE_LOG_CATEGORY(LogHaxeExtern);
 
-static const FName NAME_ToolTip(TEXT("ToolTip"));
 
 static const FString prelude = TEXT(
   " * \n"
@@ -47,7 +46,7 @@ public:
   virtual bool SupportsTarget(const FString& TargetName) const override { 
     TCHAR env[2];
     FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"), env, 2);
-    return *env;
+    return *env != 0;
   }
   /** Returns true if this plugin supports exporting scripts for the specified module */
   virtual bool ShouldExportClassesForModule(const FString& ModuleName, EBuildModuleType::Type ModuleType, const FString& ModuleGeneratedIncludeDirectory) const override {
@@ -63,13 +62,14 @@ public:
 
   /** Exports a single class. May be called multiple times for the same class (as UHT processes the entire hierarchy inside modules. */
   virtual void ExportClass(class UClass* Class, const FString& SourceHeaderFilename, const FString& GeneratedHeaderFilename, bool bHasChanged) override {
-    FString comment = Class->GetMetaData(NAME_ToolTip);
+    FString comment = Class->GetMetaData(TEXT("ToolTip"));
     m_types.touchClass(Class, SourceHeaderFilename, currentModule);
   }
 
   void saveFile(const FString& file, const FString& contents) {
     FString lastContents;
     if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || lastContents != contents) {
+	  UE_LOG(LogHaxeExtern, Warning, TEXT("SaveFile %s"), *file);
       if (!FFileHelper::SaveStringToFile(contents, *file, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
         UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot write file at path %s"), *file);
       }
@@ -168,13 +168,16 @@ FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
   if (index < 0) {
     index = inPath.Find(TEXT("Private"), ESearchCase::IgnoreCase, ESearchDir::FromEnd, startPos);
   }
+  if (index < 0) {
+	index = startPos;
+  }
   if (index >= 0) {
     int len = inPath.Len();
     while (len > ++index && (inPath[index] == TCHAR('/') || inPath[index] == TCHAR('\\'))) {
       //advance index
     }
     LOG("%s: %s", *inPath, *inPath.RightChop(index - 1));
-    return inPath.RightChop(index - 1);
+	return inPath.RightChop(index - 1).Replace(TEXT("\\"), TEXT("/"));
   }
 
   UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot determine header path of %s on package %s"), *inPath, *inPack->GetName());
@@ -210,7 +213,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
           }
           wasEditorOnly = isEditorOnly;
         }
-        auto& propComment = prop->GetMetaData(NAME_ToolTip);
+        auto& propComment = prop->GetMetaData(TEXT("ToolTip"));
         if (!propComment.IsEmpty()) {
           m_buf << Comment(propComment);
         }
@@ -291,7 +294,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
           wasEditorOnly = false;
           m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
         }
-        auto& fnComment = func->GetMetaData(NAME_ToolTip);
+        auto& fnComment = func->GetMetaData(TEXT("ToolTip"));
         if (!fnComment.IsEmpty()) {
           m_buf << Comment(fnComment);
         }
@@ -324,11 +327,11 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   
   auto isInterface = hxType.kind == ETypeKind::KUInterface;
   auto uclass = inClass->uclass;
-  bool isNoExport = (uclass->ClassFlags & CLASS_NoExport);
-  bool isMinimalAPI = (uclass->ClassFlags & CLASS_MinimalAPI);
+  bool isNoExport = (uclass->ClassFlags & CLASS_NoExport) != 0;
+  bool isMinimalAPI = (uclass->ClassFlags & CLASS_MinimalAPI) != 0;
   auto shouldNotExport = isMinimalAPI || (!uclass->HasAnyClassFlags( CLASS_RequiredAPI | CLASS_MinimalAPI ) && !inClass->header.IsEmpty() && uclass->GetName() != TEXT("Object"));
   // comment
-  auto comment = uclass->GetMetaData(NAME_ToolTip);
+  auto comment = uclass->GetMetaData(TEXT("ToolTip"));
   if (isNoExport) {
     comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
   }
@@ -395,7 +398,7 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
     }
   }
   m_buf << End();
-  printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
+  //printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
   return true;
 }
 
@@ -421,7 +424,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   // comment
   bool isNoExport = (ustruct->StructFlags & STRUCT_NoExport) != 0;
   auto isNotRequired = (ustruct->StructFlags & STRUCT_RequiredAPI) == 0;
-  auto comment = ustruct->GetMetaData(NAME_ToolTip);
+  auto comment = ustruct->GetMetaData(TEXT("ToolTip"));
   if (isNoExport || isNotRequired) {
     comment = TEXT("WARNING: This type is defined as NoExport by UHT. It will be empty because of it\n\n") + comment;
   }
@@ -464,7 +467,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
     }
   }
   m_buf << End();
-  printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
+  //printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
   return true;
 }
 
@@ -477,7 +480,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   }
 
   // comment
-  auto& comment = uenum->GetMetaData(NAME_ToolTip);
+  auto& comment = uenum->GetMetaData(TEXT("ToolTip"));
   if (!comment.IsEmpty()) {
     m_buf << Comment(comment);
   }
@@ -498,8 +501,8 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   m_buf << Begin(TEXT(" {"));
   for (int i = 0; i < uenum->NumEnums() - 1; i++) {
     auto name = uenum->GetEnumName(i);
-    auto ecomment = uenum->GetMetaData(FName(*(name + TEXT(".") + TEXT("ToolTip"))));
-    auto displayName = uenum->GetMetaData(FName(*(name + TEXT(".") + TEXT("DisplayName"))));
+    auto ecomment = uenum->GetMetaData(*(name + TEXT(".") + TEXT("ToolTip")));
+    auto displayName = uenum->GetMetaData(*(name + TEXT(".") + TEXT("DisplayName")));
     if (!displayName.IsEmpty()) {
       if (ecomment.IsEmpty()) {
         ecomment = displayName;
@@ -519,7 +522,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
 
   m_buf << End();
 
-  printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
+  //printf("%s\n", TCHAR_TO_UTF8(*m_buf.toString()));
   // for (int32 enum_index = 0; enum_index < enum_p->NumEnums() - 1; ++enum_index)
   //   {
   //   FString enum_val_name = enum_p->GetEnumName(enum_index);
