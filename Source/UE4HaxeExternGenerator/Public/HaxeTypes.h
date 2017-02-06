@@ -2,7 +2,8 @@
 #include <CoreUObject.h>
 DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 
-#define LOG(str,...) UE_LOG(LogHaxeExtern, Log, TEXT(str), __VA_ARGS__)
+// unfortunately we need to define the log as Warning since UBT makes UHT ignore all logs that are not warnings
+#define LOG(str,...) UE_LOG(LogHaxeExtern, Warning, TEXT(str), __VA_ARGS__)
 
 enum class ETypeKind {
   KNone,
@@ -89,8 +90,9 @@ private:
       prefix = TEXT("I");
     }
     FString module;
+    auto haxePack = getHaxePackage(pack, &module);
     return FHaxeTypeRef(
-      getHaxePackage(pack, &module),
+      haxePack,
       prefix + inUClass->GetName(),
       isInterface ? ETypeKind::KUInterface : ETypeKind::KUObject,
       module);
@@ -133,6 +135,7 @@ struct NonClassDescriptor {
   TSet<const ClassDescriptor *> otherModuleRefs;
   const FHaxeTypeRef haxeType;
   const ModuleDescriptor *module;
+  FString moduleSourcePath;
 
   bool addRef(const ClassDescriptor *cls) {
     bool unused;
@@ -152,6 +155,10 @@ struct NonClassDescriptor {
     TArray<FString> ret;
     if (module->moduleName == TEXT("UMG")) {
       ret.Push(TEXT("UMG.h"));
+    }
+
+    if (!moduleSourcePath.IsEmpty()) {
+      ret.Push(moduleSourcePath);
       return ret;
     }
 
@@ -179,9 +186,10 @@ struct NonClassDescriptor {
   }
 
 protected:
-  NonClassDescriptor(FHaxeTypeRef inName, ModuleDescriptor *inModule) : 
+  NonClassDescriptor(FHaxeTypeRef inName, ModuleDescriptor *inModule, UField *inField) : 
     haxeType(inName),
-    module(inModule)
+    module(inModule),
+    moduleSourcePath(inField->GetMetaData(TEXT("ModuleRelativePath")))
   {
   }
 };
@@ -190,7 +198,7 @@ struct EnumDescriptor : public NonClassDescriptor {
   UEnum *uenum;
 
   EnumDescriptor (UEnum *inUEnum, ModuleDescriptor *inModule) : 
-    NonClassDescriptor(getHaxeType(inUEnum), inModule),
+    NonClassDescriptor(getHaxeType(inUEnum), inModule, inUEnum),
     uenum(inUEnum)
   {
   }
@@ -230,7 +238,7 @@ struct StructDescriptor : public NonClassDescriptor {
   UScriptStruct *ustruct;
 
   StructDescriptor(UScriptStruct *inUStruct, ModuleDescriptor *inModule) :
-    NonClassDescriptor(getHaxeType(inUStruct), inModule),
+    NonClassDescriptor(getHaxeType(inUStruct), inModule, inUStruct),
     ustruct(inUStruct)
   {
   }

@@ -76,7 +76,6 @@ public:
   void saveFile(const FString& file, const FString& contents) {
     FString lastContents;
     if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || lastContents != contents) {
-	  UE_LOG(LogHaxeExtern, Warning, TEXT("SaveFile %s"), *file);
       if (!FFileHelper::SaveStringToFile(contents, *file, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
         UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot write file at path %s"), *file);
       }
@@ -183,7 +182,6 @@ FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
     while (len > ++index && (inPath[index] == TCHAR('/') || inPath[index] == TCHAR('\\'))) {
       //advance index
     }
-    LOG("%s: %s", *inPath, *inPath.RightChop(index - 1));
     return inPath.RightChop(index - 1).Replace(TEXT("\\"), TEXT("/"));
   }
 
@@ -235,7 +233,6 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
           << (readOnly ? TEXT("(default,never)") : TEXT(""))
           << prop->GetNameCPP();
         // TODO see if the property is read-only; this might not be supported by UHT atm?
-        // if (prop->HasAnyPropertyFlags( CPF_Con
         m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
       }
     } else if (field->IsA<UFunction>()) {
@@ -243,7 +240,6 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         continue;
       }
       auto func = Cast<UFunction>(field);
-      // if (func->HasAnyFunctionFlags( FUNC_COMBINE
       LOG("Starting to generate %s (flags %x)", *func->GetName(), func->FunctionFlags);
       if (this->m_generatedFields.Contains(func->GetName())) {
         LOG("continuing %s %s", *uclass->GetName(), *func->GetOwnerClass()->GetName());
@@ -565,6 +561,10 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
       end += TEXT(">");
     }
     if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm | CPF_OutParm)) {
+      if (inProp->IsA<UObjectProperty>()) {
+        // we don't support UObject*& for now
+        return false;
+      }
       outType += TEXT("unreal.PRef<");
       end += TEXT(">");
     }
@@ -601,6 +601,9 @@ static bool canBuildTArrayProp(FString inInner, UProperty *inProp) {
 }
 
 bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
+  if (inProp->ArrayDim > 1) {
+    return false;
+  }
   // from the most common to the least
   if (inProp->IsA<UStructProperty>()) {
     auto prop = Cast<UStructProperty>(inProp);
