@@ -2,16 +2,18 @@
 #include <CoreUObject.h>
 #include "HaxeTypes.h"
 
+namespace HaxeGenerator {
+
 struct Begin {
   const TCHAR *br;
-  Begin(const TCHAR *inBr=TEXT("{")) : br(inBr) 
+  Begin(const TCHAR *inBr=TEXT("{")) : br(inBr)
   {
   }
 };
 
 struct End {
   const TCHAR *br;
-  End(const TCHAR *inBr=TEXT("}")) : br(inBr) 
+  End(const TCHAR *inBr=TEXT("}")) : br(inBr)
   {
   }
 };
@@ -46,7 +48,7 @@ public:
   FHelperBuf() {
   }
 
-  FHelperBuf(FString inBuf) : m_buf(inBuf) 
+  FHelperBuf(FString inBuf) : m_buf(inBuf)
   {
   }
 
@@ -172,8 +174,8 @@ private:
   TSet<FString> m_generatedFields;
 
   void collectSuperFields(UStruct *inSuper);
-public: 
-  FHaxeGenerator(FHaxeTypes& inTypes, const FString& inBasePath) : 
+public:
+  FHaxeGenerator(FHaxeTypes& inTypes, const FString& inBasePath) :
     m_buf(FHelperBuf()),
     m_haxeTypes(inTypes),
     m_basePath(inBasePath)
@@ -204,3 +206,5 @@ protected:
   void generateFields(UStruct *inStruct, bool onlyProps);
   void generateIncludeMetas(const NonClassDescriptor *inDesc);
 };
+
+}

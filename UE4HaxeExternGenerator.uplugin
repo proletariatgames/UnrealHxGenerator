@@ -4,13 +4,13 @@
 	"Version" : 1,
 	"VersionName": "alpha",
 	"FriendlyVersion" : "1.0",
-	"EngineVersion" : "4.8.0",
 	"Description" : "Automatically generate externs from UHT definitions",
 	"Category" : "Scripting",
 	"CreatedBy" : "Proletariat Inc.",
 	"CreatedByURL" : "http://proletariat.com",
 	"EnabledByDefault" : true,
 	"IsBetaVersion" : true,
+  "CanBeUsedWithUnrealHeaderTool" : true,
 	"Modules" :
 	[
 		{
