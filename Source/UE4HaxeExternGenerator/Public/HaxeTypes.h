@@ -247,8 +247,9 @@ private:
   static FHaxeTypeRef getHaxeType(UStruct *inStruct) {
     auto pack = inStruct->GetOutermost();
     FString module;
+    auto haxePack = getHaxePackage(pack, &module);
     return FHaxeTypeRef(
-      getHaxePackage(pack, &module),
+      haxePack,
       inStruct->GetPrefixCPP() + inStruct->GetName(),
       ETypeKind::KUStruct,
       module);
