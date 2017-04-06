@@ -2,8 +2,8 @@
 #include <CoreUObject.h>
 DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 
-// unfortunately we need to define the log as Warning since UBT makes UHT ignore all logs that are not warnings
-#define LOG(str,...) UE_LOG(LogHaxeExtern, Warning, TEXT(str), __VA_ARGS__)
+#define LOG_WARN(str,...) UE_LOG(LogHaxeExtern, Warning, TEXT(str), __VA_ARGS__)
+#define LOG(str,...) UE_LOG(LogHaxeExtern, Log, TEXT(str), __VA_ARGS__)
 
 enum class ETypeKind {
   KNone,
@@ -315,11 +315,15 @@ public:
     TFieldIterator<UFunction> funcs(inClass, EFieldIteratorFlags::ExcludeSuper);
     for (; funcs; ++funcs) {
       auto func = *funcs;
-      for (TFieldIterator<UProperty> args(func); args; ++args) {
-        auto arg = *args;
-        // nullptr because the type can be forward declared here
-        touchProperty(arg, cls, true);
-      }
+      touchFunction(func, cls);
+    }
+  }
+
+  void touchFunction(UFunction *func, ClassDescriptor *cls) {
+    for (TFieldIterator<UProperty> args(func); args; ++args) {
+      auto arg = *args;
+      // nullptr because the type can be forward declared here
+      touchProperty(arg, cls, true);
     }
   }
 
@@ -351,6 +355,13 @@ public:
     } else if (inProp->IsA<UArrayProperty>()) {
       auto prop = Cast<UArrayProperty>(inProp);
       touchProperty(prop->Inner, inClass, inMayForward);
+    // TODO
+    // } else if (inProp->IsA<UDelegateProperty>()) {
+    //   auto prop = Cast<UDelegateProperty>(inProp);
+    //   touchFunction(prop->SignatureFunction);
+    // } else if (inProp->IsA<UMulticastDelegateProperty>()) {
+    //   auto prop = Cast<UMulticastDelegateProperty>(inProp);
+    //   touchFunction(prop->SignatureFunction);
     }
   }
 

@@ -229,6 +229,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         }
         auto readOnly = prop->HasAnyPropertyFlags(CPF_ConstParm);
         m_buf
+          << TEXT("@:uproperty ")
           << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var "))
           << (readOnly ? TEXT("(default,never)") : TEXT(""))
           << prop->GetNameCPP();
@@ -255,6 +256,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
       // generate this function in the end of its processing
       FHelperBuf curBuf;
 
+      curBuf << TEXT("@:ufunction ");
       if (func->HasAnyFunctionFlags(FUNC_Const)) {
         curBuf << TEXT("@:thisConst ");
       }
@@ -279,7 +281,33 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
             curBuf << TEXT(") : ") << type;
           } else {
             if (first) first = false; else curBuf << TEXT(", ");
+
+            if (func->HasMetaData(*param->GetName())) {
+              curBuf << TEXT("@:bpopt(\"") << Escaped(func->GetMetaData(*param->GetName())) << TEXT("\") ");
+            }
+            FString defaultValue;
+            auto paramName = FString(TEXT("CPP_Default_")) + param->GetName();
+            if (func->HasMetaData(*paramName)) {
+              defaultValue = func->GetMetaData(*paramName);
+              if (param->IsA<UNumericProperty>() || param->IsA<UBoolProperty>() || 
+                  (param->IsA<UNameProperty>() && defaultValue == TEXT("None")) ||
+                  defaultValue.IsEmpty()) {
+                if (defaultValue.IsEmpty()) {
+                  defaultValue = "null";
+                }
+              } else {
+                if (defaultValue == TEXT(" ")) {
+                  defaultValue = TEXT("");
+                }
+                curBuf << TEXT("@:opt(\"") << Escaped(defaultValue) << TEXT("\") ");
+                defaultValue = FString();
+              }
+            }
+            
             curBuf << param->GetNameCPP() << TEXT(" : ") << type;
+            if (!defaultValue.IsEmpty()) {
+              curBuf << TEXT(" = ") << defaultValue;
+            }
           }
         } else {
           shouldExport = false;
@@ -304,7 +332,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         m_buf << curBuf.toString() << Newline();
       }
     } else {
-      LOG("Field %s is not a UFUNCTION or UPROERTY", *field->GetName());
+      LOG_WARN("Field %s is not a UFUNCTION or UPROERTY", *field->GetName());
     }
   }
   if (wasEditorOnly) {
@@ -357,7 +385,7 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
     m_buf << TEXT("@:noClass ");
   }
 
-  m_buf << TEXT("@:uextern extern ") << (isInterface ? TEXT("interface ") : TEXT("class ")) << hxType.name;
+  m_buf << TEXT("@:uextern @:uclass extern ") << (isInterface ? TEXT("interface ") : TEXT("class ")) << hxType.name;
   if (!isInterface) {
     auto superUClass = uclass->GetSuperClass();
     const ClassDescriptor *super = nullptr;
@@ -445,7 +473,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
     // we don't know if == or the copy constructors are inline or not
     m_buf << TEXT("@:noCopy @:noEquals ");
   }
-  m_buf << TEXT("@:uextern extern ") << TEXT("class ") << hxType.name;
+  m_buf << TEXT("@:uextern @:ustruct extern ") << TEXT("class ") << hxType.name;
 
   auto superStruct = ustruct->GetSuperStruct();
   const StructDescriptor *super = nullptr;
@@ -499,7 +527,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
     m_buf << TEXT("@:class ");
   }
 
-  m_buf << TEXT("@:uextern extern ") << TEXT("enum ") << hxType.name;
+  m_buf << TEXT("@:uextern @:uenum extern ") << TEXT("enum ") << hxType.name;
 
   m_buf << Begin(TEXT(" {"));
   for (int i = 0; i < uenum->NumEnums() - 1; i++) {
@@ -530,7 +558,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   //   {
   //   FString enum_val_name = enum_p->GetEnumName(enum_index);
   //   FString enum_val_full_name = enum_p->GenerateFullEnumName(*enum_val_name);
-  // LOG("ENUM %s -> %s", *uenum->GetName(), *uenum->GetPathName());
+  LOG("ENUM %s -> %s", *uenum->GetName(), *uenum->GetPathName());
   // uenum->NumEnums
   return true;
 }
@@ -609,7 +637,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     auto prop = Cast<UStructProperty>(inProp);
     auto descr = m_haxeTypes.getDescriptor( prop->Struct );
     if (descr == nullptr) {
-      LOG("(struct) TYPE NOT SUPPORTED: %s", *prop->Struct->GetName());
+      LOG_WARN("(struct) TYPE NOT SUPPORTED: %s", *prop->Struct->GetName());
       // may happen if we never used this in a way the struct is known
       return false;
     }
@@ -620,7 +648,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       if (prop->HasAnyPropertyFlags(CPF_UObjectWrapper)) {
         auto descr = m_haxeTypes.getDescriptor(prop->MetaClass);
         if (descr == nullptr) {
-          LOG("(tsubclassof) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
+          LOG_WARN("(tsubclassof) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
           return false;
         }
         return writeWithModifiers(TEXT("unreal.TSubclassOf<") + descr->haxeType.toString() + TEXT(">"), inProp, outType);
@@ -629,7 +657,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     auto prop = Cast<UObjectProperty>(inProp);
     auto descr = m_haxeTypes.getDescriptor(prop->PropertyClass);
     if (descr == nullptr) {
-      LOG("(uclass) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
+      LOG_WARN("(uclass) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
       return false;
     }
     return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
@@ -639,6 +667,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     if (uenum != nullptr) {
       auto descr = m_haxeTypes.getDescriptor(uenum);
       if (descr == nullptr) {
+        LOG_WARN("(uenum) TYPE NOT SUPPORTED: %s", *uenum->GetName());
         return false;
       }
       return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
@@ -664,7 +693,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     } else if (inProp->IsA<UDoubleProperty>()) {
       return writeBasicWithModifiers(TEXT("unreal.Float64"), inProp, outType);
     } else {
-      LOG("NUMERIC TYPE NOT SUPPORTED: %s", *inProp->GetClass()->GetName());
+      LOG_WARN("NUMERIC TYPE NOT SUPPORTED: %s", *inProp->GetClass()->GetName());
       return false;
     }
     return true;
@@ -675,15 +704,33 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
     return writeWithModifiers(TEXT("unreal.FName"), inProp, outType);
   } else if (inProp->IsA<UStrProperty>()) {
     return writeWithModifiers(TEXT("unreal.FString"), inProp, outType);
+  } else if (inProp->IsA<UTextProperty>()) {
+    return writeWithModifiers(TEXT("unreal.FText"), inProp, outType);
   } else if (inProp->IsA<UArrayProperty>()) {
     auto prop = Cast<UArrayProperty>(inProp);
     FString inner;
     if (!upropType(prop->Inner, inner))
       return false;
     return canBuildTArrayProp(inner, prop->Inner) && writeWithModifiers(TEXT("unreal.TArray<") + inner + TEXT(">"), inProp, outType);
+  // we cannot generate UInterfaceProperty types since they may or may not be wrapped by TScriptInterface<>, and there doesn't
+  // seem to be a way to find that out
+  // } else if (inProp->IsA<UInterfaceProperty>()) {
+  //   auto prop = Cast<UInterfaceProperty>(inProp);
+  //   auto descr = m_haxeTypes.getDescriptor(prop->InterfaceClass);
+  //   if (descr == nullptr) {
+  //     LOG_WARN("(uinterface) TYPE NOT SUPPORTED: %s", *prop->InterfaceClass->GetName());
+  //     return false;
+  //   }
+  //   return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
+  } else if (inProp->IsA<UWeakObjectProperty>()) {
+    auto prop = Cast<UWeakObjectProperty>(inProp);
+    auto descr = m_haxeTypes.getDescriptor(prop->PropertyClass);
+    if (descr == nullptr) {
+      LOG_WARN("(weakptr) TYPE NOT SUPPORTED: %s", *prop->PropertyClass->GetName());
+      return false;
+    }
+    return writeWithModifiers(TEXT("unreal.TWeakObjectPtr<") + descr->haxeType.toString() + TEXT(">"), inProp, outType);
   }
-  // uenum
-  // uinterface
   // udelegate
   //
   // TLazyObjectPtr
@@ -693,6 +740,6 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
   // UDelegateProperty
   // UMulticastDelegateProperty
 
-  LOG("Property %s (class %s) not supported", *inProp->GetName(), *inProp->GetClass()->GetName());
+  LOG_WARN("Property %s (class %s) not supported", *inProp->GetName(), *inProp->GetClass()->GetName());
   return false;
 }
