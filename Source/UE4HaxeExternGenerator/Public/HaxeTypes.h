@@ -2,8 +2,12 @@
 #include <CoreUObject.h>
 DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 
-// unfortunately we need to define the log as Warning since UBT makes UHT ignore all logs that are not warnings
-#define LOG(str,...) UE_LOG(LogHaxeExtern, Warning, TEXT(str), __VA_ARGS__)
+// unfortunately we need to define the log as Log since UBT makes UHT ignore all logs that are not warnings
+#if false
+#define LOG(str,...) UE_LOG(LogHaxeExtern, Log, TEXT(str), __VA_ARGS__)
+#else
+#define LOG(str,...) UE_LOG(LogHaxeExtern, Verbose, TEXT(str), __VA_ARGS__)
+#endif
 
 enum class ETypeKind {
   KNone,
@@ -191,6 +195,9 @@ protected:
     module(inModule),
     moduleSourcePath(inField->GetMetaData(TEXT("ModuleRelativePath")))
   {
+    if (moduleSourcePath.IsEmpty()) {
+      this->moduleSourcePath = inField->GetMetaData(TEXT("IncludePath"));
+    }
   }
 };
 
@@ -293,7 +300,6 @@ public:
     }
     FString header;
     if (inModule == TEXT("UMG")) {
-      LOG("Module UMG %s", *inModule);
       static const FString umgHeader = TEXT("UMG.h");
       header = umgHeader;
     } else {
