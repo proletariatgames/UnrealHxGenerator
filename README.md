@@ -18,7 +18,7 @@ Once this is achieved, add the plugin to your project, either through the editor
     }
 ```
 
-Set the `EXTERN_OUTPUT_DIR` environment variable to the location you wish to output the generated files to.
+Set the `EXTERN_OUTPUT_DIR` environment variable to the location you wish to output the generated files to, and set the `GENERATE_EXTERNS` environment variable to 1
 
 ## Installation (pre 4.11)
 

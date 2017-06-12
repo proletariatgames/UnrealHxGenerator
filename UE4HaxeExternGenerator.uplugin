@@ -10,7 +10,7 @@
 	"CreatedByURL" : "http://proletariat.com",
 	"EnabledByDefault" : true,
 	"IsBetaVersion" : true,
-  "CanBeUsedWithUnrealHeaderTool" : true,
+	"CanBeUsedWithUnrealHeaderTool" : true,
 	"Modules" :
 	[
 		{
