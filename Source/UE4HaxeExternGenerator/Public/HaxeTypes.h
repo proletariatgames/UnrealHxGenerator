@@ -9,6 +9,13 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 #define LOG(str,...) UE_LOG(LogHaxeExtern, Verbose, TEXT(str), __VA_ARGS__)
 #endif
 
+#include "../Launch/Resources/Version.h"
+#ifndef ENGINE_MINOR_VERSION
+#error "Version not found"
+#endif
+
+#define UE_VER (ENGINE_MAJOR_VERSION * 100 + ENGINE_MINOR_VERSION)
+
 enum class ETypeKind {
   KNone,
   KUObject,
@@ -354,6 +361,15 @@ public:
         // is enum
         this->touchEnum(uenum, inClass);
       }
+#if UE_VER >= 416
+    } else if (inProp->IsA<UEnumProperty>()) {
+      auto enumProp = Cast<UEnumProperty>(inProp);
+      UEnum *uenum = enumProp->GetEnum();
+      if (nullptr != uenum) {
+        // is enum
+        this->touchEnum(uenum, inClass);
+      }
+#endif
     } else if (inProp->IsA<UArrayProperty>()) {
       auto prop = Cast<UArrayProperty>(inProp);
       touchProperty(prop->Inner, inClass, inMayForward);

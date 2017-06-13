@@ -3,10 +3,6 @@
 #include <CoreUObject.h>
 #include "HaxeGenerator.h"
 #include "HaxeTypes.h"
-#include "../Launch/Resources/Version.h"
-#ifndef ENGINE_MINOR_VERSION
-#error "Version not found"
-#endif
 
 DEFINE_LOG_CATEGORY(LogHaxeExtern);
 
@@ -538,7 +534,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
 
   m_buf << Begin(TEXT(" {"));
   for (int i = 0; i < uenum->NumEnums() - 1; i++) {
-#if ENGINE_MINOR_VERSION >= 16
+#if UE_VER >= 416
     auto name = uenum->GetNameStringByIndex(i);
 #else
     auto name = uenum->GetEnumName(i);
@@ -714,7 +710,7 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       return false;
     }
     return true;
-#if ENGINE_MINOR_VERSION >= 16
+#if UE_VER >= 416
   } else if (inProp->IsA<UEnumProperty>()) {
     auto enumProp = Cast<UEnumProperty>(inProp);
     UEnum *uenum = enumProp->GetEnum();
