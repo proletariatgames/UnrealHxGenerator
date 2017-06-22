@@ -26,14 +26,19 @@ enum class ETypeKind {
 };
 
 struct FHaxeTypeRef {
-  const TArray<FString> pack;
-  const FString name;
+  TArray<FString> pack;
+  FString name;
+  FString haxeModule;
+  FString uname;
+  bool haxeGenerated;
   const ETypeKind kind;
   const FString module;
 
   FHaxeTypeRef(const TArray<FString> inPack, const FString inName, ETypeKind inKind, const FString inModule) :
     pack(inPack),
     name(inName),
+    uname(inName),
+    haxeGenerated(false),
     kind(inKind),
     module(inModule)
   {
@@ -41,6 +46,8 @@ struct FHaxeTypeRef {
 
   FHaxeTypeRef(const FString inName, ETypeKind inKind) :
     name(inName),
+    uname(inName),
+    haxeGenerated(false),
     kind(inKind),
     module(FString())
   {
@@ -51,11 +58,34 @@ struct FHaxeTypeRef {
       return this->name;
     }
 
-    return FString::Join(this->pack, TEXT(".")) + TEXT(".") + this->name;
+    if (this->haxeModule.IsEmpty()) {
+      return FString::Join(this->pack, TEXT(".")) + TEXT(".") + this->name;
+    } else {
+      return FString::Join(this->pack, TEXT(".")) + TEXT(".") + this->haxeModule + TEXT(".") + this->name;
+    }
   }
 };
 
 struct HaxeTypeHelpers {
+
+  static void replaceHaxeType(UField *inField, FHaxeTypeRef& outRef) {
+    if (inField != nullptr) {
+      FString hxClass = inField->GetMetaData(TEXT("HaxeClass"));
+      if (!hxClass.IsEmpty()) {
+        outRef.haxeGenerated = true;
+        TArray<FString> fullName;
+        hxClass.ParseIntoArray(fullName,TEXT("."),false);
+        outRef.name = fullName.Pop();
+        outRef.pack = fullName;
+
+        FString hxModule = inField->GetMetaData(TEXT("HaxeModule"));
+        if (!hxModule.IsEmpty()) {
+          outRef.haxeModule = hxModule;
+        }
+      }
+    }
+  }
+
   static const TArray<FString> getHaxePackage(UPackage *inPack, FString& outModule) {
     static const TCHAR *CoreUObject = TEXT("/Script/CoreUObject");
     static const TCHAR *Engine = TEXT("/Script/Engine");
@@ -130,11 +160,13 @@ private:
     }
     FString module;
     auto haxePack = HaxeTypeHelpers::getHaxePackage(pack, module);
-    return FHaxeTypeRef(
+    FHaxeTypeRef ret(
       haxePack,
       prefix + inUClass->GetName(),
       isInterface ? ETypeKind::KUInterface : ETypeKind::KUObject,
       module);
+    HaxeTypeHelpers::replaceHaxeType(inUClass, ret);
+    return ret;
   }
 };
 
@@ -268,11 +300,13 @@ private:
     for (auto& packPart : packArr) {
       newPack.Push(packPart);
     }
-    return FHaxeTypeRef(
+    FHaxeTypeRef ret(
       newPack,
       hxName,
       ETypeKind::KUEnum,
       module);
+    HaxeTypeHelpers::replaceHaxeType(inEnum, ret);
+    return ret;
   }
 };
 
@@ -290,11 +324,13 @@ private:
     auto pack = inStruct->GetOutermost();
     FString module;
     auto haxePack = HaxeTypeHelpers::getHaxePackage(pack, module);
-    return FHaxeTypeRef(
+    FHaxeTypeRef ret(
       haxePack,
       inStruct->GetPrefixCPP() + inStruct->GetName(),
       ETypeKind::KUStruct,
       module);
+    HaxeTypeHelpers::replaceHaxeType(inStruct, ret);
+    return ret;
   }
 };
 

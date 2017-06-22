@@ -76,9 +76,13 @@ public:
     m_types.touchClass(Class, SourceHeaderFilename, currentModule);
   }
 
-  void saveFile(const FString& file, const FString& contents) {
+  void saveFile(const FString& file, FString& contents, bool append) {
     FString lastContents;
-    if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || lastContents != contents) {
+    if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || append || lastContents != contents) {
+      if (append) {
+        contents = lastContents + TEXT("\n\n") + contents;
+      }
+
       if (!FFileHelper::SaveStringToFile(contents, *file, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
         UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot write file at path %s"), *file);
       }
@@ -87,19 +91,32 @@ public:
     }
   }
 
-  void saveFile(const FHaxeTypeRef& inHaxeType, const FString& contents) {
+  void saveFile(const FHaxeTypeRef& inHaxeType, FString& contents, TSet<FString>& refTouched) {
     auto& fileMan = IFileManager::Get();
     auto outPath = this->m_pluginPath / TEXT("Haxe/Externs") / FString::Join(inHaxeType.pack, TEXT("/"));
     if (!fileMan.DirectoryExists(*outPath)) {
       fileMan.MakeDirectory(*outPath, true);
     }
 
-    auto file = outPath / inHaxeType.name + TEXT(".hx");
-    saveFile(file, contents);
+    FString file;
+    if (inHaxeType.haxeModule.IsEmpty()) {
+      file = outPath / inHaxeType.name + TEXT(".hx");
+    } else {
+      file = outPath / inHaxeType.haxeModule + TEXT(".hx");
+    }
+    if (inHaxeType.pack.Num() > 0) {
+      if (!refTouched.Contains(file)) {
+        contents = FString(TEXT("package ")) + FString::Join(inHaxeType.pack, TEXT(".")) + TEXT(";\n\n") + contents;
+      }
+    }
+
+    saveFile(file, contents, refTouched.Contains(file));
+    refTouched.Add(file);
   }
 
   /** Called once all classes have been exported */
   virtual void FinishExport() override {
+    TSet<FString> touched;
     // now start generating
     for (auto& cls : m_types.getAllClasses()) {
       if (!HaxeTypeHelpers::shouldCompileModule(cls->haxeType.module)) {
@@ -107,7 +124,8 @@ public:
       }
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateClass(cls);
-      saveFile(cls->haxeType, gen.toString());
+      FString genString = gen.toString();
+      saveFile(cls->haxeType, genString, touched);
     }
 
     for (auto& s : m_types.getAllStructs()) {
@@ -116,7 +134,8 @@ public:
       }
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateStruct(s);
-      saveFile(s->haxeType, gen.toString());
+      FString genString = gen.toString();
+      saveFile(s->haxeType, genString, touched);
     }
 
     for (auto& uenum : m_types.getAllEnums()) {
@@ -125,7 +144,8 @@ public:
       }
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateEnum(uenum);
-      saveFile(uenum->haxeType, gen.toString());
+      FString genString = gen.toString();
+      saveFile(uenum->haxeType, genString, touched);
     }
   }
 
@@ -349,10 +369,6 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   auto hxType = inClass->haxeType;
   m_buf << Comment(prelude + prelude2);
 
-  if (hxType.pack.Num() > 0) {
-    m_buf << TEXT("package ") << FString::Join(hxType.pack, TEXT(".")) << ";" << Newline() << Newline();
-  }
-
   auto isInterface = hxType.kind == ETypeKind::KUInterface;
   auto uclass = inClass->uclass;
   bool isNoExport = (uclass->ClassFlags & CLASS_NoExport) != 0;
@@ -375,6 +391,12 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   // @:umodule
   if (!hxType.module.IsEmpty()) {
     m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
+  }
+  if (!hxType.uname.IsEmpty()) {
+    m_buf << TEXT("@:uname(\"") << Escaped(hxType.uname) << TEXT("\")") << Newline();
+  }
+  if (hxType.haxeGenerated) {
+    m_buf << TEXT("@:haxeGenerated") << Newline();
   }
   // @:glueCppIncludes
   m_buf << TEXT("@:glueCppIncludes(\"") << Escaped(getHeaderPath(inClass->uclass->GetOuterUPackage(), inClass->header)) << TEXT("\")") << Newline();
@@ -443,10 +465,6 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   auto hxType = inStruct->haxeType;
   m_buf << Comment(prelude + prelude2);
 
-  if (hxType.pack.Num() > 0) {
-    m_buf << TEXT("package ") << FString::Join(hxType.pack, TEXT(".")) << ";" << Newline() << Newline();
-  }
-
   auto ustruct = inStruct->ustruct;
   // comment
   bool isNoExport = (ustruct->StructFlags & STRUCT_NoExport) != 0;
@@ -462,6 +480,12 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   // @:umodule
   if (!hxType.module.IsEmpty()) {
     m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
+  }
+  if (!hxType.uname.IsEmpty()) {
+    m_buf << TEXT("@:uname(\"") << Escaped(hxType.uname) << TEXT("\")") << Newline();
+  }
+  if (hxType.haxeGenerated) {
+    m_buf << TEXT("@:haxeGenerated") << Newline();
   }
   // @:glueCppIncludes
   generateIncludeMetas(inStruct);
@@ -501,9 +525,6 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   auto uenum = inEnum->uenum;
   m_buf << Comment(prelude + prelude2);
   auto hxType = inEnum->haxeType;
-  if (hxType.pack.Num() > 0) {
-    m_buf << TEXT("package ") << FString::Join(hxType.pack, TEXT(".")) << ";" << Newline() << Newline();
-  }
 
   // comment
   auto& comment = uenum->GetMetaData(TEXT("ToolTip"));
@@ -513,6 +534,9 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   // @:umodule
   if (!hxType.module.IsEmpty()) {
     m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
+  }
+  if (hxType.haxeGenerated) {
+    m_buf << TEXT("@:haxeGenerated") << Newline();
   }
   // @:glueCppIncludes
   generateIncludeMetas(inEnum);
