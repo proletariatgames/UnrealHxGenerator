@@ -55,30 +55,58 @@ struct FHaxeTypeRef {
   }
 };
 
-static const TArray<FString> getHaxePackage(UPackage *inPack, FString * outModule) {
-  static const TCHAR *CoreUObject = TEXT("/Script/CoreUObject");
-  static const TCHAR *Engine = TEXT("/Script/Engine");
-  static const TCHAR *UnrealEd = TEXT("/Script/UnrealEd");
-  if (inPack->GetName() == CoreUObject || inPack->GetName() == Engine) {
-    static TArray<FString> ret;
-    if (ret.Num() == 0)
-      ret.Push(FString("unreal"));
-    return ret;
-  } else if (inPack->GetName() == UnrealEd) {
-    static TArray<FString> ret;
-    if (ret.Num() == 0) {
-      ret.Push(FString("unreal"));
-      ret.Push(FString("editor"));
+struct HaxeTypeHelpers {
+  static const TArray<FString> getHaxePackage(UPackage *inPack, FString& outModule) {
+    static const TCHAR *CoreUObject = TEXT("/Script/CoreUObject");
+    static const TCHAR *Engine = TEXT("/Script/Engine");
+    static const TCHAR *UnrealEd = TEXT("/Script/UnrealEd");
+    static bool isCompilingGameCode = compilingGameCode();
+    if (inPack->GetName() == CoreUObject || inPack->GetName() == Engine) {
+      static TArray<FString> ret;
+      if (ret.Num() == 0)
+        ret.Push(FString("unreal"));
+      return ret;
+    } else if (inPack->GetName() == UnrealEd) {
+      static TArray<FString> ret;
+      if (ret.Num() == 0) {
+        ret.Push(FString("unreal"));
+        ret.Push(FString("editor"));
+      }
+      outModule = FString(TEXT("UnrealEd"));
+      return ret;
     }
-    *outModule = FString(TEXT("UnrealEd"));
+    outModule = inPack->GetName().RightChop( sizeof("/Script") );
+    TArray<FString> ret;
+    if (!isCompilingGameCode || !shouldCompileModule(*outModule)) {
+      ret.Push("unreal");
+    }
+    ret.Push(outModule.ToLower());
     return ret;
   }
-  *outModule = inPack->GetName().RightChop( sizeof("/Script") );
-  TArray<FString> ret;
-  ret.Push("unreal");
-  ret.Push((*outModule).ToLower());
-  return ret;
-}
+
+  static bool shouldCompileModule(const FString& name) {
+    static TArray<FString> targetsToCompile(getTargetsToCompile());
+    if (targetsToCompile.Num() != 0 && targetsToCompile.Find(name) < 0) {
+      return false;
+    }
+    return name != FString(TEXT("HaxeInit"));
+  }
+
+  static bool compilingGameCode() {
+    static TArray<FString> targetsToCompile(getTargetsToCompile());
+    return (targetsToCompile.Num() > 0);
+  }
+
+private:
+  static TArray<FString> getTargetsToCompile() {
+    static TCHAR env[256];
+    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_MODULES"), env, 255);
+    TArray<FString> ret;
+    FString(env).ParseIntoArray(ret,TEXT(","),true);
+    return ret;
+  }
+
+};
 
 struct ClassDescriptor {
   UClass *uclass;
@@ -101,7 +129,7 @@ private:
       prefix = TEXT("I");
     }
     FString module;
-    auto haxePack = getHaxePackage(pack, &module);
+    auto haxePack = HaxeTypeHelpers::getHaxePackage(pack, module);
     return FHaxeTypeRef(
       haxePack,
       prefix + inUClass->GetName(),
@@ -235,7 +263,7 @@ private:
     }
 
     FString module;
-    auto newPack = TArray<FString>(getHaxePackage(pack, &module));
+    auto newPack = TArray<FString>(HaxeTypeHelpers::getHaxePackage(pack, module));
     auto hxName = packArr.Pop( false );
     for (auto& packPart : packArr) {
       newPack.Push(packPart);
@@ -261,7 +289,7 @@ private:
   static FHaxeTypeRef getHaxeType(UStruct *inStruct) {
     auto pack = inStruct->GetOutermost();
     FString module;
-    auto haxePack = getHaxePackage(pack, &module);
+    auto haxePack = HaxeTypeHelpers::getHaxePackage(pack, module);
     return FHaxeTypeRef(
       haxePack,
       inStruct->GetPrefixCPP() + inStruct->GetName(),

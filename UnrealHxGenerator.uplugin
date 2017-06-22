@@ -1,6 +1,6 @@
 {
 	"FileVersion" : 3,
-	"FriendlyName" : "UE4Haxe Extern Generator plugin",
+	"FriendlyName" : "Unreal.hx Extern Generator plugin",
 	"Version" : 1,
 	"VersionName": "alpha",
 	"FriendlyVersion" : "1.0",
@@ -14,7 +14,7 @@
 	"Modules" :
 	[
 		{
-			"Name" : "UE4HaxeExternGenerator",
+			"Name" : "UnrealHxGenerator",
 			"Type" : "Program",
 			"LoadingPhase" : "PostConfigInit"
 		}
