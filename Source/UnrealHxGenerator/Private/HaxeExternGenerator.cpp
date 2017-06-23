@@ -116,7 +116,17 @@ public:
 
   /** Called once all classes have been exported */
   virtual void FinishExport() override {
-    TSet<FString> touched;
+    for (FRawObjectIterator it(false); it; ++it) {
+      if (UStruct* cls = Cast<UStruct>((UObject*) it->Object)) {
+        if (UScriptStruct* ustruct = Cast<UScriptStruct>(cls)) {
+          m_types.touchStruct(ustruct, nullptr);
+        } else if (UEnum* uenum = Cast<UEnum>(cls)) {
+          m_types.touchEnum(uenum, nullptr);
+        }
+      }
+    }
+
+    TSet<FString> touchedFiles;
     // now start generating
     for (auto& cls : m_types.getAllClasses()) {
       if (!HaxeTypeHelpers::shouldCompileModule(cls->haxeType.module)) {
@@ -125,7 +135,7 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateClass(cls);
       FString genString = gen.toString();
-      saveFile(cls->haxeType, genString, touched);
+      saveFile(cls->haxeType, genString, touchedFiles);
     }
 
     for (auto& s : m_types.getAllStructs()) {
@@ -135,7 +145,7 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateStruct(s);
       FString genString = gen.toString();
-      saveFile(s->haxeType, genString, touched);
+      saveFile(s->haxeType, genString, touchedFiles);
     }
 
     for (auto& uenum : m_types.getAllEnums()) {
@@ -145,7 +155,7 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateEnum(uenum);
       FString genString = gen.toString();
-      saveFile(uenum->haxeType, genString, touched);
+      saveFile(uenum->haxeType, genString, touchedFiles);
     }
   }
 

@@ -369,6 +369,10 @@ public:
     if (m_classes.Contains(inClass->GetName())) {
       return; // we've already touched this type; probably it's UObject which gets added every time (!)
     }
+    if (inClass->HasMetaData(TEXT("UHX_Internal"))) {
+      // internal class, shouldn't be exported
+      return;
+    }
     FString header;
     if (inModule == TEXT("UMG")) {
       static const FString umgHeader = TEXT("UMG.h");
@@ -448,6 +452,10 @@ public:
    * that has included its entire definition
    **/
   void touchStruct(UScriptStruct *inStruct, ClassDescriptor *inClass) {
+    if (inStruct->HasMetaData(TEXT("UHX_Internal"))) {
+      // internal class, shouldn't be exported
+      return;
+    }
     auto name = inStruct->GetName();
     if (!m_structs.Contains(name)) {
       m_structs.Add(name, new StructDescriptor(inStruct, this->getModule(inStruct->GetOutermost())));
@@ -476,6 +484,10 @@ public:
    * @see `touchStruct`
    **/
   void touchEnum(UEnum *inEnum, ClassDescriptor *inClass) {
+    if (inEnum->HasMetaData(TEXT("UHX_Internal"))) {
+      // internal class, shouldn't be exported
+      return;
+    }
     auto name = inEnum->GetName();
     if (!m_enums.Contains(name)) {
       m_enums.Add(name, new EnumDescriptor(inEnum, this->getModule(inEnum->GetOutermost())));
