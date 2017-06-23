@@ -70,7 +70,7 @@ struct HaxeTypeHelpers {
 
   static void replaceHaxeType(UField *inField, FHaxeTypeRef& outRef) {
     if (inField != nullptr) {
-      FString hxClass = inField->GetMetaData(TEXT("HaxeClass"));
+      FString hxClass = inField->GetMetaData(TEXT("HaxeStaticClass"));
       if (!hxClass.IsEmpty()) {
         outRef.haxeGenerated = true;
         TArray<FString> fullName;
