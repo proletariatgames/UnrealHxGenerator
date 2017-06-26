@@ -50,6 +50,7 @@ public:
   virtual bool SupportsTarget(const FString& TargetName) const override { 
     TCHAR env[2];
     FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"), env, 2);
+    LOG("Supports target: %d", *env != 0);
     return *env != 0;
   }
 
@@ -63,6 +64,7 @@ public:
   virtual void Initialize(const FString& RootLocalPath, const FString& RootBuildPath, const FString& OutputDirectory, const FString& IncludeBase) override {
     TCHAR pluginPath[1024];
     FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_OUTPUT_DIR"), pluginPath, 1024);
+    LOG("Output dir: %s", pluginPath);
     if (*pluginPath == 0) {
       UE_LOG(LogHaxeExtern, Fatal, TEXT("No EXTERN_OUTPUT_DIR was set"));
     }
@@ -421,7 +423,7 @@ bool FHaxeGenerator::generateClass(const ClassDescriptor *inClass) {
   if (!hxType.module.IsEmpty()) {
     m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
   }
-  if (!hxType.uname.IsEmpty()) {
+  if (!hxType.uname.IsEmpty() && hxType.uname != hxType.name) {
     m_buf << TEXT("@:uname(\"") << Escaped(hxType.uname) << TEXT("\")") << Newline();
   }
   if (hxType.haxeGenerated) {
@@ -502,8 +504,15 @@ bool FHaxeGenerator::generateDelegate(const DelegateDescriptor *inDelegate) {
   if (!hxType.module.IsEmpty()) {
     curBuf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
   }
-  if (!hxType.uname.IsEmpty()) {
-    curBuf << TEXT("@:uname(\"") << Escaped(hxType.uname) << TEXT("\")") << Newline();
+
+  auto uname = hxType.uname;
+  auto outer = udelegate->GetOuter();
+  if (!outer->IsA<UPackage>() && outer->IsA<UStruct>()) {
+    auto ustructOuter = Cast<UStruct>(outer);
+    uname = ustructOuter->GetPrefixCPP() + ustructOuter->GetName() + TEXT(".") + uname;
+  }
+  if (!uname.IsEmpty() && uname != hxType.name) {
+    curBuf << TEXT("@:uname(\"") << Escaped(uname) << TEXT("\")") << Newline();
   }
   if (hxType.haxeGenerated) {
     curBuf << TEXT("@:haxeGenerated") << Newline();
@@ -585,7 +594,7 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   if (!hxType.module.IsEmpty()) {
     m_buf << TEXT("@:umodule(\"") << Escaped(hxType.module) << TEXT("\")") << Newline();
   }
-  if (!hxType.uname.IsEmpty()) {
+  if (!hxType.uname.IsEmpty() && hxType.uname != hxType.name) {
     m_buf << TEXT("@:uname(\"") << Escaped(hxType.uname) << TEXT("\")") << Newline();
   }
   if (hxType.haxeGenerated) {
@@ -679,12 +688,6 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
 
   m_buf << End();
 
-  // for (int32 enum_index = 0; enum_index < enum_p->NumEnums() - 1; ++enum_index)
-  //   {
-  //   FString enum_val_name = enum_p->GetEnumName(enum_index);
-  //   FString enum_val_full_name = enum_p->GenerateFullEnumName(*enum_val_name);
-  // LOG("ENUM %s -> %s", *uenum->GetName(), *uenum->GetPathName());
-  // uenum->NumEnums
   return true;
 }
 
@@ -723,12 +726,6 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
     }
   }
 
-  // UHT bug: it doesn't provide any way to differentiate `const SomeType&` to `SomeType`
-  // so we'll assume it's always the latter - which is more common
-  // if (inProp->HasAnyPropertyFlags(CPF_Parm) && end.IsEmpty()) {
-  //   outType += TEXT("unreal.Const<unreal.PRef<") + inName + TEXT(">>");
-  //   return true;
-  // }
   LOG("PROPERTY %s: %s %llx", *inName, *outType, (long long int) inProp->PropertyFlags);
 
   outType += inName + end;

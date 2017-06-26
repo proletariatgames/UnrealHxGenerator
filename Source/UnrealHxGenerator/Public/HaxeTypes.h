@@ -6,7 +6,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 #if false
 #define LOG(str,...) UE_LOG(LogHaxeExtern, Log, TEXT(str), __VA_ARGS__)
 #else
-#define LOG(str,...) UE_LOG(LogHaxeExtern, Verbose, TEXT(str), __VA_ARGS__)
+#define LOG(str,...) 
 #endif
 
 #include "../Launch/Resources/Version.h"
