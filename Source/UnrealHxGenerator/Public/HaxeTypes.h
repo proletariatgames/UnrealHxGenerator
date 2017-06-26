@@ -334,15 +334,41 @@ private:
   }
 };
 
-// struct DelegateDescriptor : public NonClassDescriptor {
-//   UDelegate *udelegate;
-// };
+struct DelegateDescriptor : public NonClassDescriptor {
+  UFunction *delegateSignature;
+
+  DelegateDescriptor(UFunction *inDelegate, ModuleDescriptor *inModule) :
+    NonClassDescriptor(getHaxeType(inDelegate), inModule, inDelegate),
+    delegateSignature(inDelegate)
+  {
+  }
+
+private:
+  static FHaxeTypeRef getHaxeType(UFunction *inFunction) {
+    auto pack = inFunction->GetOutermost();
+    FString module;
+    auto haxePack = HaxeTypeHelpers::getHaxePackage(pack, module);
+    auto name = inFunction->GetName();
+    if (!name.EndsWith(TEXT("__DelegateSignature"))) {
+      UE_LOG(LogHaxeExtern, Fatal, TEXT("Bad delegate signature %s - it doesn't contain __DelegateSignature"), *name);
+    }
+    name = name.LeftChop(sizeof("__DelegateSignature") - 1);
+    FHaxeTypeRef ret(
+      haxePack,
+      inFunction->GetPrefixCPP() + name,
+      ETypeKind::KUDelegate,
+      module);
+    HaxeTypeHelpers::replaceHaxeType(inFunction, ret);
+    return ret;
+  }
+};
 
 class FHaxeTypes {
 private:
   TMap<FString, ClassDescriptor *> m_classes;
   TMap<FString, EnumDescriptor *> m_enums;
   TMap<FString, StructDescriptor *> m_structs;
+  TMap<FString, DelegateDescriptor *> m_delegates;
 
   TMap<UPackage *, ModuleDescriptor *> m_upackageToModule;
 
@@ -441,6 +467,12 @@ public:
     } else if (inProp->IsA<UArrayProperty>()) {
       auto prop = Cast<UArrayProperty>(inProp);
       touchProperty(prop->Inner, inClass, inMayForward);
+    } else if (inProp->IsA<UDelegateProperty>()) {
+      auto prop = Cast<UDelegateProperty>(inProp);
+      touchDelegate(prop->SignatureFunction, inClass);
+    } else if (inProp->IsA<UMulticastDelegateProperty>()) {
+      auto prop = Cast<UMulticastDelegateProperty>(inProp);
+      touchDelegate(prop->SignatureFunction, inClass);
     }
   }
 
@@ -496,6 +528,42 @@ public:
     LOG("Haxe enum name: %s", *descr->haxeType.toString());
     if (inClass != nullptr)
       descr->addRef(inClass);
+  }
+
+  /**
+   * add a reference from the class `inClass` to delegate `inDelegate`
+   * this reference allows us to be sure that we can include a header that includes the definition
+   * to the struct. We need that because the current UHT exporter interface doesn't pass the headers
+   * of structs and enums to us. So we need to ignore structs/enums that we aren't sure to have a header
+   * that has included its entire definition
+   **/
+  void touchDelegate(UFunction *inDelegate, ClassDescriptor *inClass) {
+    if (inDelegate->HasMetaData(TEXT("UHX_Internal"))) {
+      // internal class, shouldn't be exported
+      return;
+    }
+    auto name = inDelegate->GetName();
+    if ( (inDelegate->FunctionFlags & FUNC_Delegate) == 0) {
+      UE_LOG(LogHaxeExtern, Warning, TEXT("Delegate %s does not have the delegate flag set"), *name);
+      return;
+    }
+    if (!name.EndsWith(TEXT("__DelegateSignature"))) {
+      UE_LOG(LogHaxeExtern, Warning, TEXT("Delegate %s's name doesn't contain __DelegateSignature"), *name);
+      return;
+    }
+    if (!m_delegates.Contains(name)) {
+      m_delegates.Add(name, new DelegateDescriptor(inDelegate, this->getModule(inDelegate->GetOutermost())));
+    }
+    auto descr = m_delegates[name];
+    if (inClass != nullptr) {
+      descr->addRef(inClass);
+    }
+
+    TFieldIterator<UProperty> props(inDelegate, EFieldIteratorFlags::ExcludeSuper);
+    for (; props; ++props) {
+      UProperty *prop = *props;
+      touchProperty(prop, inClass, false);
+    }
   }
 
   ///////////////////////////////////////////////////////
@@ -576,6 +644,19 @@ public:
     return m_structs[name];
   }
 
+  const DelegateDescriptor *getDescriptor(UFunction *inFunction) {
+    if (inFunction == nullptr) return nullptr;
+    FString name = inFunction->GetName();
+    if (isBadType(name)) {
+      return nullptr;
+    }
+    if (!m_delegates.Contains(name)) {
+      return nullptr;
+    }
+
+    return m_delegates[name];
+  }
+
   TArray<const ModuleDescriptor *> getAllModules() {
     TArray<const ModuleDescriptor *> ret;
     for (auto& elem : m_upackageToModule) {
@@ -608,6 +689,21 @@ public:
       }
     }
     return ret;
+  }
+
+  TArray<const DelegateDescriptor *> getAllDelegates() {
+    TArray<const DelegateDescriptor *> ret;
+    for (auto& elem : m_delegates) {
+      if (!isBadType(elem.Key)) {
+        ret.Add(elem.Value);
+      }
+    }
+    return ret;
+  }
+
+  void doNotExportDelegate(const DelegateDescriptor *inDelegate) {
+    m_delegates.Remove(inDelegate->delegateSignature->GetName());
+    delete inDelegate;
   }
 
   ~FHaxeTypes() {

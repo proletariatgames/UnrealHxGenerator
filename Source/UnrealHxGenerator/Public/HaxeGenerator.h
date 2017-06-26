@@ -114,7 +114,7 @@ public:
 
   FHelperBuf& operator <<(const FString& inText) {
     this->m_buf += inText;
-    this->m_hasContent = true;
+    this->m_hasContent = this->m_hasContent || !inText.IsEmpty();
     return *this;
   }
 
@@ -156,6 +156,12 @@ public:
     return this->comment(inComment.str);
   }
 
+  void newLineIfNeeded() {
+    if (this->m_hasContent) {
+      this->newline();
+    }
+  }
+
   FString toString() {
     return m_buf;
   }
@@ -183,10 +189,9 @@ public:
   }
 
   bool generateClass(const ClassDescriptor *inClass);
-
   bool generateStruct(const StructDescriptor *inStruct);
-
   bool generateEnum(const EnumDescriptor *inEnum);
+  bool generateDelegate(const DelegateDescriptor *inDelegate);
 
   FString toString() {
     return m_buf.toString();
