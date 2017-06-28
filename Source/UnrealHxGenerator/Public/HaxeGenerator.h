@@ -207,6 +207,7 @@ protected:
   // Gets the Haxe representation for a `UProperty` type. This is used both for uproperties and for ufunction arguments
   // Returns an empty string if the type is not supported
   bool upropType(UProperty* inProp, FString &outType);
+  bool isReadOnly(UProperty* inProp);
 
   void generateFields(UStruct *inStruct, bool onlyProps);
   void generateIncludeMetas(const NonClassDescriptor *inDesc);

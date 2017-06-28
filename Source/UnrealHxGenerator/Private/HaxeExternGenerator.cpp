@@ -26,6 +26,39 @@ static const FString prelude2 =
 
 static const FString preludeComment = FString(TEXT("/**\n")) + prelude + prelude2 + FString(TEXT("**/\n"));
 
+static TSet<FString> getReadOnlyStructNames() {
+  // CppStuctOps doesn't work inside the header parser
+  // so we need to manually add non-copy fields here
+  TSet<FString> ret;
+  ret.Add(TEXT("SkeletalMeshComponentEndPhysicsTickFunction"));
+  ret.Add(TEXT("SkeletalMeshComponentClothTickFunction"));
+  ret.Add(TEXT("StaticMeshComponentLODInfo"));
+  ret.Add(TEXT("KeyHandleMap"));
+  ret.Add(TEXT("RichCurveKey"));
+  ret.Add(TEXT("PointerToUberGraphFrame"));
+  ret.Add(TEXT("TickFunction"));
+  ret.Add(TEXT("ActorTickFunction"));
+  ret.Add(TEXT("ActorComponentTickFunction"));
+  ret.Add(TEXT("PrimitiveComponentPostPhysicsTickFunction"));
+  ret.Add(TEXT("StartPhysicsTickFunction"));
+  ret.Add(TEXT("EndPhysicsTickFunction"));
+  ret.Add(TEXT("StartAsyncSimulationFunction"));
+  ret.Add(TEXT("LevelCollection"));
+  ret.Add(TEXT("CharacterMovementComponentPostPhysicsTickFunction"));
+  ret.Add(TEXT("BodyInstance"));
+  ret.Add(TEXT("StartPhysics2DTickFunction"));
+  ret.Add(TEXT("EndPhysics2DTickFunction"));
+  ret.Add(TEXT("TestTickFunction"));
+  ret.Add(TEXT("CachedMovieSceneEvaluationTemplate"));
+  ret.Add(TEXT("MovieSceneEvaluationTrack"));
+  return ret;
+}
+
+static bool structHasCopy(UScriptStruct *inStruct) {
+  static TSet<FString> structNames = getReadOnlyStructNames();
+  return !structNames.Contains(inStruct->GetName());
+}
+
 class FHaxeExternGenerator : public IHaxeExternGenerator {
 protected:
   FString m_pluginPath;
@@ -122,7 +155,11 @@ public:
   /** Called once all classes have been exported */
   virtual void FinishExport() override {
     for (FRawObjectIterator it(false); it; ++it) {
-      if (UStruct* cls = Cast<UStruct>((UObject*) it->Object)) {
+      UObject* obj = (UObject*) it->Object;
+      if (obj->HasAnyFlags(RF_ClassDefaultObject)) {
+        continue;
+      }
+      if (UStruct* cls = Cast<UStruct>(obj)) {
         if (UScriptStruct* ustruct = Cast<UScriptStruct>(cls)) {
           m_types.touchStruct(ustruct, nullptr);
         } else if (UEnum* uenum = Cast<UEnum>(cls)) {
@@ -275,11 +312,11 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
           m_buf << TEXT("@:deprecated ");
         }
         m_buf << TEXT("@:uproperty ");
-        auto readOnly = prop->HasAnyPropertyFlags(CPF_ConstParm);
+        auto readOnly = isReadOnly(prop);
         m_buf
           << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var "))
-          << (readOnly ? TEXT("(default,never)") : TEXT(""))
-          << prop->GetNameCPP();
+          << prop->GetNameCPP()
+          << (readOnly ? TEXT("(default,never)") : TEXT(""));
         // TODO see if the property is read-only; this might not be supported by UHT atm?
         m_buf << TEXT(" : ") << type << TEXT(";") << Newline();
       }
@@ -602,9 +639,14 @@ bool FHaxeGenerator::generateStruct(const StructDescriptor *inStruct) {
   }
   // @:glueCppIncludes
   generateIncludeMetas(inStruct);
-  if (isNotRequired) {
+  auto ops = inStruct->ustruct->GetCppStructOps();
+  bool isAbstract = ops != nullptr ? ops->IsAbstract() : false;
+  if (isAbstract || isNotRequired ||!structHasCopy(inStruct->ustruct)) {
     // we don't know if == or the copy constructors are inline or not
-    m_buf << TEXT("@:noCopy @:noEquals ");
+    m_buf << TEXT("@:noCopy ");
+  }
+  if (isAbstract || isNotRequired || (ops != nullptr && !ops->HasIdentical())) {
+    m_buf << TEXT("@:noEquals ");
   }
   m_buf << TEXT("@:uextern @:ustruct extern ") << TEXT("class ") << hxType.name;
 
@@ -748,6 +790,24 @@ static bool canBuildTArrayProp(FString inInner, UProperty *inProp) {
     return false;
   }
   return true;
+}
+
+bool FHaxeGenerator::isReadOnly(UProperty* inProp) {
+  if (inProp->HasAnyPropertyFlags(CPF_ConstParm)) {
+    return true;
+  }
+  if (inProp->IsA<UStructProperty>()) {
+    auto prop = Cast<UStructProperty>(inProp);
+    // auto ops = prop->Struct->GetCppStructOps();
+    // if (ops == nullptr) {
+    //   UE_LOG(LogHaxeExtern, Warning, TEXT("(struct) TYPE HAS NOT OPS : %s"), *prop->Struct->GetName());
+    //   return false;
+    // }
+    // return !ops->HasCopy();
+    //
+    return !structHasCopy(prop->Struct);
+  }
+  return false;
 }
 
 bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
