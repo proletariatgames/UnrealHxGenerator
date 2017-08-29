@@ -28,7 +28,7 @@ cd [UE-Install-Dir]
 .\Engine\Build\BatchFiles\RunUAT.bat BuildPlugin -Plugin=[/path/to/UnrealHxGenerator.uplugin] -Package=[TemporaryOutputDirectory]
 ```
 
-Once it is built, copy `TemporaryOutputDirectory/Binaries/[platform]/*` to your `[UE-Install-Dir]/Engine/Binaries/[platform]`
+Once it is built, copy `TemporaryOutputDirectory` to your `[UE-Install-Dir]/Engine/Plugins/UnrealHxGenerator`
 
 ## Installation (pre 4.11)
 

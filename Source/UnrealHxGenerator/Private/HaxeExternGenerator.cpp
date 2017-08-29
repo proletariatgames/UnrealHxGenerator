@@ -63,6 +63,7 @@ class FHaxeExternGenerator : public IHaxeExternGenerator {
 protected:
   FString m_pluginPath;
   FHaxeTypes m_types;
+  TMap<FString, FString> m_partialFiles;
   static FString currentModule;
 public:
 
@@ -116,11 +117,13 @@ public:
 
   void saveFile(const FString& file, FString& contents, bool append) {
     FString lastContents;
-    if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || append || lastContents != contents) {
-      if (append) {
-        contents = lastContents + TEXT("\n\n") + contents;
+    if (append) {
+      FString &refContents = m_partialFiles.FindOrAdd(file);
+      if (!refContents.IsEmpty()) {
+        refContents += TEXT("\n\n");
       }
-
+      refContents += contents;
+    } else if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || lastContents != contents) {
       if (!FFileHelper::SaveStringToFile(contents, *file, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
         UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot write file at path %s"), *file);
       }
@@ -129,7 +132,7 @@ public:
     }
   }
 
-  void saveFile(const FHaxeTypeRef& inHaxeType, FString& contents, TSet<FString>& refTouched) {
+  void saveFile(const FHaxeTypeRef& inHaxeType, FString& contents, TSet<FString>& refTouched, TSet<FString>& refAppend) {
     auto& fileMan = IFileManager::Get();
     auto outPath = this->m_pluginPath / TEXT("Haxe/Externs") / FString::Join(inHaxeType.pack, TEXT("/"));
     if (!fileMan.DirectoryExists(*outPath)) {
@@ -148,7 +151,9 @@ public:
       }
     }
 
-    saveFile(file, contents, refTouched.Contains(file));
+    FString name = FString::Join(inHaxeType.pack, TEXT(".")) + TEXT(".") + inHaxeType.name;
+
+    saveFile(file, contents, refAppend.Contains(name));
     refTouched.Add(file);
   }
 
@@ -172,6 +177,36 @@ public:
       }
     }
 
+    TSet<FString> appendModules;
+    for (auto& udelegate : m_types.getAllDelegates()) {
+      if (!udelegate->haxeType.haxeModule.IsEmpty()) {
+        FString name = FString::Join(udelegate->haxeType.pack, TEXT(".")) + TEXT(".") + udelegate->haxeType.name;
+        appendModules.Add(name);
+      }
+    }
+
+    for (auto& cls : m_types.getAllClasses()) {
+      if (!cls->haxeType.haxeModule.IsEmpty()) {
+        FString name = FString::Join(cls->haxeType.pack, TEXT(".")) + TEXT(".") + cls->haxeType.name;
+        appendModules.Add(name);
+      }
+    }
+
+    for (auto& s : m_types.getAllStructs()) {
+      if (!s->haxeType.haxeModule.IsEmpty()) {
+        FString name = FString::Join(s->haxeType.pack, TEXT(".")) + TEXT(".") + s->haxeType.name;
+        appendModules.Add(name);
+      }
+    }
+
+    for (auto& uenum : m_types.getAllEnums()) {
+      if (!uenum->haxeType.haxeModule.IsEmpty()) {
+        FString name = FString::Join(uenum->haxeType.pack, TEXT(".")) + TEXT(".") + uenum->haxeType.name;
+        appendModules.Add(name);
+      }
+    }
+
+
     TSet<FString> touchedFiles;
     // now start generating
     for (auto& udelegate : m_types.getAllDelegates()) {
@@ -181,7 +216,7 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       if (gen.generateDelegate(udelegate)) {
         FString genString = gen.toString();
-        saveFile(udelegate->haxeType, genString, touchedFiles);
+        saveFile(udelegate->haxeType, genString, touchedFiles, appendModules);
       } else {
         m_types.doNotExportDelegate(udelegate);
       }
@@ -194,7 +229,7 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateClass(cls);
       FString genString = gen.toString();
-      saveFile(cls->haxeType, genString, touchedFiles);
+      saveFile(cls->haxeType, genString, touchedFiles, appendModules);
     }
 
     for (auto& s : m_types.getAllStructs()) {
@@ -204,7 +239,7 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateStruct(s);
       FString genString = gen.toString();
-      saveFile(s->haxeType, genString, touchedFiles);
+      saveFile(s->haxeType, genString, touchedFiles, appendModules);
     }
 
     for (auto& uenum : m_types.getAllEnums()) {
@@ -214,7 +249,11 @@ public:
       auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
       gen.generateEnum(uenum);
       FString genString = gen.toString();
-      saveFile(uenum->haxeType, genString, touchedFiles);
+      saveFile(uenum->haxeType, genString, touchedFiles, appendModules);
+    }
+
+    for (auto partialsIt = m_partialFiles.CreateIterator() ; partialsIt; ++partialsIt) {
+      saveFile(partialsIt.Key(), partialsIt.Value(), false);
     }
   }
 
