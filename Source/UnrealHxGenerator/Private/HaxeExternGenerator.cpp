@@ -81,7 +81,7 @@ public:
   }
 
   /** Returns true if this plugin supports exporting scripts for the specified target. This should handle game as well as editor target names */
-  virtual bool SupportsTarget(const FString& TargetName) const override { 
+  virtual bool SupportsTarget(const FString& TargetName) const override {
     TCHAR env[2];
     FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"), env, 2);
     LOG("Supports target: %d", *env != 0);
@@ -317,6 +317,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
   if (inStruct->IsA<UClass>()) {
     uclass = Cast<UClass>(inStruct);
   }
+  auto wasEditorOnlyData = false;
   auto wasEditorOnly = false;
   TArray<UField *> fields;
   for (TFieldIterator<UField> invFields(inStruct, EFieldIteratorFlags::ExcludeSuper); invFields; ++invFields) {
@@ -331,15 +332,20 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         continue; // we cannot generate code for protected bit-fields
       }
       FString type;
+      if (wasEditorOnly) {
+        m_buf << TEXT("#end // WITH_EDITOR") << Newline();
+        wasEditorOnly = false;
+      }
+
       if ((prop->HasAnyFlags(RF_Public) || prop->HasAnyPropertyFlags(CPF_Protected)) && upropType(prop, type)) {
-        auto isEditorOnly = prop->HasAnyPropertyFlags(CPF_EditorOnly);
-        if (isEditorOnly != wasEditorOnly) {
-          if (isEditorOnly) {
+        auto isEditorOnlyData = prop->HasAnyPropertyFlags(CPF_EditorOnly);
+        if (isEditorOnlyData != wasEditorOnlyData) {
+          if (isEditorOnlyData) {
             m_buf << TEXT("#if WITH_EDITORONLY_DATA") << Newline();
           } else {
             m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
           }
-          wasEditorOnly = isEditorOnly;
+          wasEditorOnlyData = isEditorOnlyData;
         }
         auto& propComment = prop->GetMetaData(TEXT("ToolTip"));
         if (!propComment.IsEmpty()) {
@@ -374,6 +380,23 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         // Delegate signatures are a weird piece of code that don't seem to be exported
         continue;
       }
+      auto isEditorOnly = false;
+#if UE_VER >= 417
+      isEditorOnly = func->HasAnyFunctionFlags(FUNC_EditorOnly);
+#endif
+      if (wasEditorOnlyData) {
+        m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+        wasEditorOnlyData = false;
+      }
+      if (isEditorOnly != wasEditorOnly) {
+        if (isEditorOnly) {
+          m_buf << TEXT("#if WITH_EDITOR") << Newline();
+        } else {
+          m_buf << TEXT("#end // WITH_EDITOR") << Newline();
+        }
+        wasEditorOnly = isEditorOnly;
+      }
+
       this->m_generatedFields.Add(func->GetName());
       // we need to create a local buffer because we will only know if we should
       // generate this function in the end of its processing
@@ -446,8 +469,8 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
       }
       if (shouldExport) {
         // seems like UHT doesn't support editor-only ufunctions
-        if (wasEditorOnly) {
-          wasEditorOnly = false;
+        if (wasEditorOnlyData) {
+          wasEditorOnlyData = false;
           m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
         }
         auto& fnComment = func->GetMetaData(TEXT("ToolTip"));
@@ -460,9 +483,13 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
       UE_LOG(LogHaxeExtern, Warning, TEXT("Field %s is not a UFUNCTION or UPROERTY"), *field->GetName());
     }
   }
+  if (wasEditorOnlyData) {
+    wasEditorOnlyData = false;
+    m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+  }
   if (wasEditorOnly) {
     wasEditorOnly = false;
-    m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
+    m_buf << TEXT("#end // WITH_EDITOR") << Newline();
   }
 }
 
