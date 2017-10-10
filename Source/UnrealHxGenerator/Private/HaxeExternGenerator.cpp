@@ -2,6 +2,7 @@
 #include <Features/IModularFeatures.h>
 #include <CoreUObject.h>
 #include "HaxeGenerator.h"
+#include "Misc/Paths.h"
 #include "HaxeTypes.h"
 
 DEFINE_LOG_CATEGORY(LogHaxeExtern);
@@ -273,6 +274,9 @@ FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
     // this is a particularity of UHT - it sometimes adds no header path to some of the core UObjects
     return FString("CoreUObject.h");
   }
+  if (FPaths::IsRelative(inPath)) {
+    return inPath.Replace(TEXT("\\"),TEXT("/"));
+  }
   auto lastSlash = inPath.Find(TEXT("/"), ESearchCase::CaseSensitive, ESearchDir::FromEnd, inPath.Len());
   auto lastBackslash = inPath.Find(TEXT("\\"), ESearchCase::CaseSensitive, ESearchDir::FromEnd, inPath.Len());
   int startPos = (lastSlash > lastBackslash) ? lastSlash : lastBackslash;
@@ -302,7 +306,8 @@ FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
   }
   if (index >= 0) {
     int len = inPath.Len();
-    while (len > ++index && (inPath[index] == TCHAR('/') || inPath[index] == TCHAR('\\'))) {
+    while (len > index && (inPath[index - 1] == TCHAR('/') || inPath[index - 1] == TCHAR('\\'))) {
+      index++;
       //advance index
     }
     return inPath.RightChop(index - 1).Replace(TEXT("\\"), TEXT("/"));
@@ -370,7 +375,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
       if (onlyProps && (func->FunctionFlags & FUNC_RequiredAPI) == 0) {
         continue;
       }
-      LOG("Starting to generate %s (flags %x)", *func->GetName(), func->FunctionFlags);
+      LOG("Starting to generate %s (flags %x)", *func->GetName(), (int) func->FunctionFlags);
       if (this->m_generatedFields.Contains(func->GetName())) {
         LOG("continuing %s %s", *uclass->GetName(), *func->GetOwnerClass()->GetName());
         // we don't need to generate overridden functions' glue code
@@ -407,7 +412,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         curBuf << TEXT("@:thisConst ");
       }
 
-      LOG("Generating %s (flags %x)", *func->GetName(), func->FunctionFlags);
+      LOG("Generating %s (flags %x)", *func->GetName(), (int) func->FunctionFlags);
       if (func->HasAnyFunctionFlags(FUNC_Static)) {
         curBuf << TEXT("static ");
       } else if (func->HasAnyFunctionFlags(FUNC_Final)) {

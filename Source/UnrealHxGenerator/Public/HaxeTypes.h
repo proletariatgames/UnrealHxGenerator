@@ -6,7 +6,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 #if false
 #define LOG(str,...) UE_LOG(LogHaxeExtern, Log, TEXT(str), __VA_ARGS__)
 #else
-#define LOG(str,...) 
+#define LOG(str,...)
 #endif
 
 #include "../Launch/Resources/Version.h"
@@ -257,7 +257,7 @@ struct NonClassDescriptor {
   }
 
 protected:
-  NonClassDescriptor(FHaxeTypeRef inName, ModuleDescriptor *inModule, UField *inField) : 
+  NonClassDescriptor(FHaxeTypeRef inName, ModuleDescriptor *inModule, UField *inField) :
     haxeType(inName),
     module(inModule),
     moduleSourcePath(inField->GetMetaData(TEXT("ModuleRelativePath")))
@@ -271,7 +271,7 @@ protected:
 struct EnumDescriptor : public NonClassDescriptor {
   UEnum *uenum;
 
-  EnumDescriptor (UEnum *inUEnum, ModuleDescriptor *inModule) : 
+  EnumDescriptor (UEnum *inUEnum, ModuleDescriptor *inModule) :
     NonClassDescriptor(getHaxeType(inUEnum), inModule, inUEnum),
     uenum(inUEnum)
   {
