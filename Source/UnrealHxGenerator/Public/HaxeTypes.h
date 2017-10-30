@@ -374,10 +374,10 @@ private:
 
   const static FHaxeTypeRef nulltype;
 
-  FString m_pluginPath;
+  FString m_outPath;
 
   void deleteFileIfExists(FHaxeTypeRef haxeType) {
-    auto outPath = this->m_pluginPath / TEXT("Haxe/Externs") / FString::Join(haxeType.pack, TEXT("/")) / haxeType.name + TEXT(".hx");
+    auto outPath = this->m_outPath / FString::Join(haxeType.pack, TEXT("/")) / haxeType.name + TEXT(".hx");
     if (FPlatformFileManager::Get().GetPlatformFile().FileExists(*outPath)) {
       LOG("Deleting previously generated file %s", *outPath);
       FPlatformFileManager::Get().GetPlatformFile().DeleteFile(*outPath);
@@ -385,7 +385,7 @@ private:
   }
 
 public:
-  FHaxeTypes(FString inPluginPath) : m_pluginPath(inPluginPath)
+  FHaxeTypes(FString inOutPath) : m_outPath(inOutPath)
   {
   }
 

@@ -63,6 +63,7 @@ static bool structHasCopy(UScriptStruct *inStruct) {
 class FHaxeExternGenerator : public IHaxeExternGenerator {
 protected:
   FString m_pluginPath;
+  FString m_outPath;
   FHaxeTypes m_types;
   TMap<FString, FString> m_partialFiles;
   static FString currentModule;
@@ -107,7 +108,13 @@ public:
     if (m_pluginPath.Len() == 0) {
       m_pluginPath = IncludeBase + TEXT("/../../");
     }
-    this->m_types = FHaxeTypes(m_pluginPath);
+    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_FULL_OUT_PATH"), pluginPath, 1024);
+    if (*pluginPath == 0) {
+      m_outPath = m_pluginPath / TEXT("Haxe/Externs");
+    } else {
+      m_outPath = pluginPath;
+    }
+    this->m_types = FHaxeTypes(m_outPath);
   }
 
   /** Exports a single class. May be called multiple times for the same class (as UHT processes the entire hierarchy inside modules. */
@@ -135,7 +142,7 @@ public:
 
   void saveFile(const FHaxeTypeRef& inHaxeType, FString& contents, TSet<FString>& refTouched, TSet<FString>& refAppend) {
     auto& fileMan = IFileManager::Get();
-    auto outPath = this->m_pluginPath / TEXT("Haxe/Externs") / FString::Join(inHaxeType.pack, TEXT("/"));
+    auto outPath = this->m_outPath / FString::Join(inHaxeType.pack, TEXT("/"));
     if (!fileMan.DirectoryExists(*outPath)) {
       fileMan.MakeDirectory(*outPath, true);
     }
@@ -214,7 +221,7 @@ public:
       if (!HaxeTypeHelpers::shouldCompileModule(udelegate->haxeType.module)) {
         continue;
       }
-      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      auto gen = FHaxeGenerator(this->m_types);
       if (gen.generateDelegate(udelegate)) {
         FString genString = gen.toString();
         saveFile(udelegate->haxeType, genString, touchedFiles, appendModules);
@@ -227,7 +234,7 @@ public:
       if (!HaxeTypeHelpers::shouldCompileModule(cls->haxeType.module)) {
         continue;
       }
-      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      auto gen = FHaxeGenerator(this->m_types);
       gen.generateClass(cls);
       FString genString = gen.toString();
       saveFile(cls->haxeType, genString, touchedFiles, appendModules);
@@ -237,7 +244,7 @@ public:
       if (!HaxeTypeHelpers::shouldCompileModule(s->haxeType.module)) {
         continue;
       }
-      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      auto gen = FHaxeGenerator(this->m_types);
       gen.generateStruct(s);
       FString genString = gen.toString();
       saveFile(s->haxeType, genString, touchedFiles, appendModules);
@@ -247,7 +254,7 @@ public:
       if (!HaxeTypeHelpers::shouldCompileModule(uenum->haxeType.module)) {
         continue;
       }
-      auto gen = FHaxeGenerator(this->m_types, this->m_pluginPath);
+      auto gen = FHaxeGenerator(this->m_types);
       gen.generateEnum(uenum);
       FString genString = gen.toString();
       saveFile(uenum->haxeType, genString, touchedFiles, appendModules);

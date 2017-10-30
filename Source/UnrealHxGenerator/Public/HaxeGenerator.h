@@ -175,16 +175,14 @@ class FHaxeGenerator {
 private:
   FHelperBuf m_buf;
   FHaxeTypes& m_haxeTypes;
-  const FString& m_basePath;
   bool m_hasStructs;
   TSet<FString> m_generatedFields;
 
   void collectSuperFields(UStruct *inSuper);
 public:
-  FHaxeGenerator(FHaxeTypes& inTypes, const FString& inBasePath) :
+  FHaxeGenerator(FHaxeTypes& inTypes) :
     m_buf(FHelperBuf()),
-    m_haxeTypes(inTypes),
-    m_basePath(inBasePath)
+    m_haxeTypes(inTypes)
   {
   }
 
