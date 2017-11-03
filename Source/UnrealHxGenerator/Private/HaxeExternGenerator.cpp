@@ -153,6 +153,7 @@ public:
     } else {
       file = outPath / inHaxeType.haxeModule + TEXT(".hx");
     }
+    FPaths::MakeStandardFilename(file);
     if (inHaxeType.pack.Num() > 0) {
       if (!refTouched.Contains(file)) {
         contents = preludeComment + FString(TEXT("package ")) + FString::Join(inHaxeType.pack, TEXT(".")) + TEXT(";\n\n") + contents;
@@ -263,6 +264,45 @@ public:
     for (auto partialsIt = m_partialFiles.CreateIterator() ; partialsIt; ++partialsIt) {
       saveFile(partialsIt.Key(), partialsIt.Value(), false);
     }
+
+    if (HaxeTypeHelpers::compilingGameCode()) {
+      class FDeleteVisitor : public IPlatformFile::FDirectoryVisitor {
+      public:
+        TSet<FString> m_touchedFiles;
+        FDeleteVisitor(TSet<FString> touchedFiles) : m_touchedFiles(touchedFiles) {
+        }
+
+        virtual bool Visit(const TCHAR* filename, bool isDir) override {
+          if (isDir) {
+            return true;
+          }
+          FString file = FString(filename);
+          FPaths::MakeStandardFilename(file);
+          if (!m_touchedFiles.Contains(file)) {
+            auto& fileMan = IFileManager::Get();
+            LOG(TEXT("Deleting uneeded file %s"), filename);
+            if (!fileMan.Delete(filename, true, true, true)) {
+              UE_LOG(LogHaxeExtern, Warning, TEXT("Error while deleting file %s"), filename);
+            }
+          }
+          return true;
+        }
+      };
+      FDeleteVisitor visitor(touchedFiles);
+      auto& fileMan = IFileManager::Get();
+      fileMan.IterateDirectoryRecursively(*this->m_outPath, visitor);
+    }
+    // auto outPath = this->m_outPath / FString::Join(inHaxeType.pack, TEXT("/"));
+    // if (!fileMan.DirectoryExists(*outPath)) {
+    //   fileMan.MakeDirectory(*outPath, true);
+    // }
+
+    // FString file;
+    // if (inHaxeType.haxeModule.IsEmpty()) {
+    //   file = outPath / inHaxeType.name + TEXT(".hx");
+    // } else {
+    //   file = outPath / inHaxeType.haxeModule + TEXT(".hx");
+    // }
   }
 
   /** Name of the generator plugin, mostly for debuggind purposes */
