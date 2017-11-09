@@ -314,6 +314,44 @@ public:
 
 IMPLEMENT_MODULE(FHaxeExternGenerator, UnrealHxGenerator)
 
+static TArray<FString> getUFunctionFlags(UFunction *func) {
+  TArray<FString> ret;
+  if (func->HasAllFunctionFlags(FUNC_Event | FUNC_BlueprintEvent)) {
+    if (func->HasAnyFunctionFlags(FUNC_Native)) {
+      ret.Push(TEXT("BlueprintNativeEvent"));
+    } else {
+      ret.Push(TEXT("BlueprintImplementableEvent"));
+    }
+  }
+  if (func->HasAnyFunctionFlags(FUNC_Net)) {
+    if (func->HasAnyFunctionFlags(FUNC_NetServer)) {
+      ret.Push(TEXT("Server"));
+    } else if (func->HasAnyFunctionFlags(FUNC_NetClient)) {
+      ret.Push(TEXT("Client"));
+    } else {
+      ret.Push(TEXT("NetMulticast"));
+    }
+  }
+  if (func->HasAnyFunctionFlags(FUNC_BlueprintCallable)) {
+    ret.Push(TEXT("BlueprintCallable"));
+  }
+
+  return ret;
+}
+
+static TArray<FString> getUPropertyFlags(UProperty *prop) {
+  TArray<FString> ret;
+  auto& getter = prop->GetMetaData(TEXT("BlueprintGetter"));
+  if (!getter.IsEmpty()) {
+    ret.Push(FString(TEXT("BlueprintGetter=")) + getter);
+  }
+  auto& setter = prop->GetMetaData(TEXT("BlueprintSetter"));
+  if (!setter.IsEmpty()) {
+    ret.Push(FString(TEXT("BlueprintSetter=")) + setter);
+  }
+  return ret;
+}
+
 FString FHaxeExternGenerator::currentModule = FString();
 
 FString FHaxeGenerator::getHeaderPath(UPackage *inPack, const FString& inPath) {
@@ -408,7 +446,13 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
           // properties can still be accessed without annoying warnings. So let's generate them and add @:deprecated on the Haxe side
           m_buf << TEXT("@:deprecated ");
         }
-        m_buf << TEXT("@:uproperty ");
+        m_buf << TEXT("@:uproperty");
+        auto flags = getUPropertyFlags(prop);
+        if (flags.Num() != 0) {
+          m_buf << TEXT("(") << FString::Join(flags, TEXT(", ")) << TEXT(") ");
+        } else {
+          m_buf << TEXT(" ");
+        }
         auto readOnly = isReadOnly(prop);
         m_buf
           << (prop->HasAnyPropertyFlags(CPF_Protected) ? TEXT("private var ") : TEXT("public var "))
@@ -454,7 +498,13 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
       // generate this function in the end of its processing
       FHelperBuf curBuf;
 
-      curBuf << TEXT("@:ufunction ");
+      curBuf << TEXT("@:ufunction");
+      auto flags = getUFunctionFlags(func);
+      if (flags.Num() != 0) {
+        curBuf << TEXT("(") << FString::Join(flags, TEXT(", ")) << TEXT(") ");
+      } else {
+        curBuf << TEXT(" ");
+      }
       if (func->HasAnyFunctionFlags(FUNC_Const)) {
         curBuf << TEXT("@:thisConst ");
       }
