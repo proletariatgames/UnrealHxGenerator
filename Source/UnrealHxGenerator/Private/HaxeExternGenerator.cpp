@@ -173,7 +173,7 @@ public:
       if (obj->HasAnyFlags(RF_ClassDefaultObject)) {
         continue;
       }
-      if (UStruct* cls = Cast<UStruct>(obj)) {
+      if (UField* cls = Cast<UField>(obj)) {
         if (UScriptStruct* ustruct = Cast<UScriptStruct>(cls)) {
           m_types.touchStruct(ustruct, nullptr);
         } else if (UEnum* uenum = Cast<UEnum>(cls)) {
@@ -280,7 +280,7 @@ public:
           FPaths::MakeStandardFilename(file);
           if (!m_touchedFiles.Contains(file)) {
             auto& fileMan = IFileManager::Get();
-            LOG(TEXT("Deleting uneeded file %s"), filename);
+            LOG("Deleting uneeded file %s", *filename);
             if (!fileMan.Delete(filename, true, true, true)) {
               UE_LOG(LogHaxeExtern, Warning, TEXT("Error while deleting file %s"), filename);
             }
