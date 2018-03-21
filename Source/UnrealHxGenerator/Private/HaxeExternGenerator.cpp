@@ -1,6 +1,6 @@
 #include "IHaxeExternGenerator.h"
 #include <Features/IModularFeatures.h>
-#include <CoreUObject.h>
+// #include <FileHelper.h>
 #include "HaxeGenerator.h"
 #include "Misc/Paths.h"
 #include "HaxeTypes.h"
