@@ -1,5 +1,5 @@
 #pragma once
-#include <CoreUObject.h>
+#include <CoreMinimal.h>
 #include "HaxeTypes.h"
 
 namespace HaxeGenerator {

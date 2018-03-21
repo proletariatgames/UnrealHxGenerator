@@ -1,6 +1,5 @@
 #include "IHaxeExternGenerator.h"
 #include <Features/IModularFeatures.h>
-#include <CoreUObject.h>
 #include "HaxeGenerator.h"
 #include "Misc/Paths.h"
 #include "HaxeTypes.h"
@@ -131,7 +130,7 @@ public:
         refContents += TEXT("\n\n");
       }
       refContents += contents;
-    } else if (!FFileHelper::LoadFileToString(lastContents, *file, 0) || lastContents != contents) {
+    } else if (!FFileHelper::LoadFileToString(lastContents, *file, FFileHelper::EHashOptions::None) || lastContents != contents) {
       if (!FFileHelper::SaveStringToFile(contents, *file, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM)) {
         UE_LOG(LogHaxeExtern, Fatal, TEXT("Cannot write file at path %s"), *file);
       }
