@@ -870,7 +870,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   m_buf << TEXT("@:uextern @:uenum extern ") << TEXT("enum ") << hxType.name;
 
   m_buf << Begin(TEXT(" {"));
-  for (int i = 0; i < uenum->NumEnums() - 1; i++) {
+  for (int i = 0; i < uenum->NumEnums(); i++) {
 #if UE_VER >= 416
     auto name = uenum->GetNameStringByIndex(i);
 #else
