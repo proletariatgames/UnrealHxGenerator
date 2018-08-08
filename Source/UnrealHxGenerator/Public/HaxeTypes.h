@@ -14,6 +14,8 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 #error "Version not found"
 #endif
 
+#define UHX_MAX_ENV_SIZE 32768
+
 #define UE_VER (ENGINE_MAJOR_VERSION * 100 + ENGINE_MINOR_VERSION)
 
 enum class ETypeKind {
@@ -107,30 +109,47 @@ struct HaxeTypeHelpers {
     }
     outModule = inPack->GetName().RightChop( sizeof("/Script") );
     TArray<FString> ret;
-    if (!isCompilingGameCode || !shouldCompileModule(*outModule)) {
+    if (!isCompilingGameCode || !shouldGenerateModule(*outModule)) {
       ret.Push("unreal");
     }
     ret.Push(outModule.ToLower());
     return ret;
   }
 
-  static bool shouldCompileModule(const FString& name) {
-    static TArray<FString> targetsToCompile(getTargetsToCompile());
-    if (targetsToCompile.Num() != 0 && targetsToCompile.Find(name) < 0) {
+  static bool shouldGenerateModule(const FString& name, bool alsoUnrealTypes=false) {
+    if (alsoUnrealTypes) {
+      static TArray<FString> unrealTargets(getUnrealTargetsToGenerate());
+      if (unrealTargets.Find(name) >= 0) {
+        return true;
+      }
+    }
+
+    static TArray<FString> targetsToGenerate(getTargetsToGenerate());
+    if (targetsToGenerate.Num() != 0 && targetsToGenerate.Find(name) < 0) {
       return false;
     }
     return name != FString(TEXT("HaxeInit"));
   }
 
   static bool compilingGameCode() {
-    static TArray<FString> targetsToCompile(getTargetsToCompile());
-    return (targetsToCompile.Num() > 0);
+    static TArray<FString> targetsToGenerate(getTargetsToGenerate());
+    return (targetsToGenerate.Num() > 0);
   }
 
 private:
-  static TArray<FString> getTargetsToCompile() {
-    static TCHAR env[256];
-    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_MODULES"), env, 255);
+  static TArray<FString> getTargetsToGenerate() {
+    static TCHAR env[UHX_MAX_ENV_SIZE];
+    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_MODULES"), env, UHX_MAX_ENV_SIZE - 1);
+    env[UHX_MAX_ENV_SIZE-1] = 0;
+    TArray<FString> ret;
+    FString(env).ParseIntoArray(ret,TEXT(","),true);
+    return ret;
+  }
+
+  static TArray<FString> getUnrealTargetsToGenerate() {
+    static TCHAR env[UHX_MAX_ENV_SIZE];
+    FPlatformMisc::GetEnvironmentVariable(TEXT("UNREAL_EXTERN_MODULES"), env, UHX_MAX_ENV_SIZE - 1);
+    env[UHX_MAX_ENV_SIZE-1] = 0;
     TArray<FString> ret;
     FString(env).ParseIntoArray(ret,TEXT(","),true);
     return ret;

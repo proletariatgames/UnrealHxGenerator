@@ -97,8 +97,8 @@ public:
 
   /** Initializes this plugin with build information */
   virtual void Initialize(const FString& RootLocalPath, const FString& RootBuildPath, const FString& OutputDirectory, const FString& IncludeBase) override {
-    TCHAR pluginPath[1024];
-    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_OUTPUT_DIR"), pluginPath, 1024);
+    TCHAR pluginPath[UHX_MAX_ENV_SIZE];
+    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_OUTPUT_DIR"), pluginPath, UHX_MAX_ENV_SIZE - 1);
     LOG("Output dir: %s", pluginPath);
     if (*pluginPath == 0) {
       UE_LOG(LogHaxeExtern, Fatal, TEXT("No EXTERN_OUTPUT_DIR was set"));
@@ -107,7 +107,7 @@ public:
     if (m_pluginPath.Len() == 0) {
       m_pluginPath = IncludeBase + TEXT("/../../");
     }
-    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_FULL_OUT_PATH"), pluginPath, 1024);
+    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_FULL_OUT_PATH"), pluginPath, UHX_MAX_ENV_SIZE - 1);
     if (*pluginPath == 0) {
       m_outPath = m_pluginPath / TEXT("Haxe/Externs");
     } else {
@@ -218,7 +218,7 @@ public:
     TSet<FString> touchedFiles;
     // now start generating
     for (auto& udelegate : m_types.getAllDelegates()) {
-      if (!HaxeTypeHelpers::shouldCompileModule(udelegate->haxeType.module)) {
+      if (!HaxeTypeHelpers::shouldGenerateModule(udelegate->haxeType.module, true)) {
         continue;
       }
       auto gen = FHaxeGenerator(this->m_types);
@@ -231,7 +231,7 @@ public:
     }
 
     for (auto& cls : m_types.getAllClasses()) {
-      if (!HaxeTypeHelpers::shouldCompileModule(cls->haxeType.module)) {
+      if (!HaxeTypeHelpers::shouldGenerateModule(cls->haxeType.module, true)) {
         continue;
       }
       auto gen = FHaxeGenerator(this->m_types);
@@ -241,7 +241,7 @@ public:
     }
 
     for (auto& s : m_types.getAllStructs()) {
-      if (!HaxeTypeHelpers::shouldCompileModule(s->haxeType.module)) {
+      if (!HaxeTypeHelpers::shouldGenerateModule(s->haxeType.module, true)) {
         continue;
       }
       auto gen = FHaxeGenerator(this->m_types);
@@ -251,7 +251,7 @@ public:
     }
 
     for (auto& uenum : m_types.getAllEnums()) {
-      if (!HaxeTypeHelpers::shouldCompileModule(uenum->haxeType.module)) {
+      if (!HaxeTypeHelpers::shouldGenerateModule(uenum->haxeType.module, true)) {
         continue;
       }
       auto gen = FHaxeGenerator(this->m_types);
