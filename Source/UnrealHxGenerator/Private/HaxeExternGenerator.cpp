@@ -907,7 +907,14 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
       end += TEXT(">");
     }
     if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm)) {
-      outType += TEXT("unreal.PRef<");
+      if (inProp->IsA<UStructProperty>())
+      {
+        outType += TEXT("unreal.PRef<");
+      }
+      else
+      {
+        outType += TEXT("unreal.Ref<");
+      }
       end += TEXT(">");
     }
   } else {
@@ -923,7 +930,14 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
         // we don't support UObject*& for now
         return false;
       }
-      outType += TEXT("unreal.PRef<");
+      if (inProp->IsA<UStructProperty>())
+      {
+        outType += TEXT("unreal.PRef<");
+      }
+      else
+      {
+        outType += TEXT("unreal.Ref<");
+      }
       end += TEXT(">");
     }
   }
