@@ -475,10 +475,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         // Delegate signatures are a weird piece of code that don't seem to be exported
         continue;
       }
-      auto isEditorOnly = false;
-#if UE_VER >= 417
-      isEditorOnly = func->HasAnyFunctionFlags(FUNC_EditorOnly);
-#endif
+      auto isEditorOnly = func->HasAnyFunctionFlags(FUNC_EditorOnly);
       if (wasEditorOnlyData) {
         m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
         wasEditorOnlyData = false;
@@ -848,7 +845,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   auto hxType = inEnum->haxeType;
 
   // comment
-  auto& comment = uenum->GetMetaData(TEXT("ToolTip"));
+  auto comment = uenum->GetMetaData(TEXT("ToolTip"));
   if (!comment.IsEmpty()) {
     m_buf << Comment(comment);
   }
@@ -871,11 +868,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
 
   m_buf << Begin(TEXT(" {"));
   for (int i = 0; i < uenum->NumEnums(); i++) {
-#if UE_VER >= 416
     auto name = uenum->GetNameStringByIndex(i);
-#else
-    auto name = uenum->GetEnumName(i);
-#endif
     auto ecomment = uenum->GetMetaData(*(name + TEXT(".") + TEXT("ToolTip")));
     auto displayName = uenum->GetMetaData(*(name + TEXT(".") + TEXT("DisplayName")));
     if (!displayName.IsEmpty()) {
@@ -914,7 +907,14 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
       end += TEXT(">");
     }
     if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm)) {
-      outType += TEXT("unreal.PRef<");
+      if (inProp->IsA<UStructProperty>())
+      {
+        outType += TEXT("unreal.PRef<");
+      }
+      else
+      {
+        outType += TEXT("unreal.Ref<");
+      }
       end += TEXT(">");
     }
   } else {
@@ -930,7 +930,14 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
         // we don't support UObject*& for now
         return false;
       }
-      outType += TEXT("unreal.PRef<");
+      if (inProp->IsA<UStructProperty>())
+      {
+        outType += TEXT("unreal.PRef<");
+      }
+      else
+      {
+        outType += TEXT("unreal.Ref<");
+      }
       end += TEXT(">");
     }
   }
@@ -1053,7 +1060,6 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       return false;
     }
     return true;
-#if UE_VER >= 416
   } else if (inProp->IsA<UEnumProperty>()) {
     auto enumProp = Cast<UEnumProperty>(inProp);
     UEnum *uenum = enumProp->GetEnum();
@@ -1062,7 +1068,6 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       return false;
     }
     return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
-#endif
   } else if (inProp->IsA<UBoolProperty>()) {
     return writeBasicWithModifiers(TEXT("Bool"), inProp, outType);
     return true;
