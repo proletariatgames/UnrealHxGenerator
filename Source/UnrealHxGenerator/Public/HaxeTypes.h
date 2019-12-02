@@ -9,14 +9,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogHaxeExtern, Log, All);
 #define LOG(str,...)
 #endif
 
-#include "../Launch/Resources/Version.h"
-#ifndef ENGINE_MINOR_VERSION
-#error "Version not found"
-#endif
-
 #define UHX_MAX_ENV_SIZE 32768
-
-#define UE_VER (ENGINE_MAJOR_VERSION * 100 + ENGINE_MINOR_VERSION)
 
 enum class ETypeKind {
   KNone,
@@ -138,20 +131,16 @@ struct HaxeTypeHelpers {
 
 private:
   static TArray<FString> getTargetsToGenerate() {
-    static TCHAR env[UHX_MAX_ENV_SIZE];
-    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_MODULES"), env, UHX_MAX_ENV_SIZE - 1);
-    env[UHX_MAX_ENV_SIZE-1] = 0;
+    FString env = FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_MODULES"));
     TArray<FString> ret;
-    FString(env).ParseIntoArray(ret,TEXT(","),true);
+    env.ParseIntoArray(ret,TEXT(","),true);
     return ret;
   }
 
   static TArray<FString> getUnrealTargetsToGenerate() {
-    static TCHAR env[UHX_MAX_ENV_SIZE];
-    FPlatformMisc::GetEnvironmentVariable(TEXT("UNREAL_EXTERN_MODULES"), env, UHX_MAX_ENV_SIZE - 1);
-    env[UHX_MAX_ENV_SIZE-1] = 0;
+    FString env = FPlatformMisc::GetEnvironmentVariable(TEXT("UNREAL_EXTERN_MODULES"));
     TArray<FString> ret;
-    FString(env).ParseIntoArray(ret,TEXT(","),true);
+    env.ParseIntoArray(ret,TEXT(","),true);
     return ret;
   }
 
@@ -474,7 +463,6 @@ public:
         // is enum
         this->touchEnum(uenum, inClass);
       }
-#if UE_VER >= 416
     } else if (inProp->IsA<UEnumProperty>()) {
       auto enumProp = Cast<UEnumProperty>(inProp);
       UEnum *uenum = enumProp->GetEnum();
@@ -482,7 +470,6 @@ public:
         // is enum
         this->touchEnum(uenum, inClass);
       }
-#endif
     } else if (inProp->IsA<UArrayProperty>()) {
       auto prop = Cast<UArrayProperty>(inProp);
       touchProperty(prop->Inner, inClass, inMayForward);

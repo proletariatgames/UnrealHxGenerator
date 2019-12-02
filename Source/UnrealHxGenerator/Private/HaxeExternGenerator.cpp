@@ -83,10 +83,9 @@ public:
 
   /** Returns true if this plugin supports exporting scripts for the specified target. This should handle game as well as editor target names */
   virtual bool SupportsTarget(const FString& TargetName) const override {
-    TCHAR env[2];
-    FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"), env, 2);
-    LOG("Supports target: %d", *env != 0);
-    return *env != 0;
+    FString env = FPlatformMisc::GetEnvironmentVariable(TEXT("GENERATE_EXTERNS"));
+    LOG("Supports target: %d", !env.IsEmpty());
+    return !env.IsEmpty();
   }
 
   /** Returns true if this plugin supports exporting scripts for the specified module */
@@ -97,21 +96,20 @@ public:
 
   /** Initializes this plugin with build information */
   virtual void Initialize(const FString& RootLocalPath, const FString& RootBuildPath, const FString& OutputDirectory, const FString& IncludeBase) override {
-    TCHAR pluginPath[UHX_MAX_ENV_SIZE];
-    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_OUTPUT_DIR"), pluginPath, UHX_MAX_ENV_SIZE - 1);
-    LOG("Output dir: %s", pluginPath);
-    if (*pluginPath == 0) {
+    FString pluginPath = FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_OUTPUT_DIR"));
+    LOG("Output dir: %s", *pluginPath);
+    if (pluginPath.IsEmpty()) {
       UE_LOG(LogHaxeExtern, Fatal, TEXT("No EXTERN_OUTPUT_DIR was set"));
     }
     m_pluginPath = pluginPath;
     if (m_pluginPath.Len() == 0) {
       m_pluginPath = IncludeBase + TEXT("/../../");
     }
-    FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_FULL_OUT_PATH"), pluginPath, UHX_MAX_ENV_SIZE - 1);
-    if (*pluginPath == 0) {
+    FString externOutPath = FPlatformMisc::GetEnvironmentVariable(TEXT("EXTERN_FULL_OUT_PATH"));
+    if (externOutPath.IsEmpty()) {
       m_outPath = m_pluginPath / TEXT("Haxe/Externs");
     } else {
-      m_outPath = pluginPath;
+      m_outPath = externOutPath;
     }
     this->m_types = FHaxeTypes(m_outPath);
   }
@@ -475,10 +473,7 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
         // Delegate signatures are a weird piece of code that don't seem to be exported
         continue;
       }
-      auto isEditorOnly = false;
-#if UE_VER >= 417
-      isEditorOnly = func->HasAnyFunctionFlags(FUNC_EditorOnly);
-#endif
+      auto isEditorOnly = func->HasAnyFunctionFlags(FUNC_EditorOnly);
       if (wasEditorOnlyData) {
         m_buf << TEXT("#end // WITH_EDITORONLY_DATA") << Newline();
         wasEditorOnlyData = false;
@@ -538,8 +533,6 @@ void FHaxeGenerator::generateFields(UStruct *inStruct, bool onlyProps = false) {
                 // do nothing - defaultValue will be consumed later
               } else if (defaultValue == FString(TEXT("nullptr")) || defaultValue == FString(TEXT("NULL")) || defaultValue == FString(TEXT("null"))) {
                 defaultValue = FString("null");
-              } else if (param->IsA<UStrProperty>() || param->IsA<UTextProperty>()) {
-                escapeDefault = true;
               } else {
                 curBuf << TEXT("@:opt(\"") << Escaped(defaultValue) << TEXT("\") ");
                 defaultValue = FString();
@@ -848,7 +841,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   auto hxType = inEnum->haxeType;
 
   // comment
-  auto& comment = uenum->GetMetaData(TEXT("ToolTip"));
+  auto comment = uenum->GetMetaData(TEXT("ToolTip"));
   if (!comment.IsEmpty()) {
     m_buf << Comment(comment);
   }
@@ -871,11 +864,7 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
 
   m_buf << Begin(TEXT(" {"));
   for (int i = 0; i < uenum->NumEnums(); i++) {
-#if UE_VER >= 416
     auto name = uenum->GetNameStringByIndex(i);
-#else
-    auto name = uenum->GetEnumName(i);
-#endif
     auto ecomment = uenum->GetMetaData(*(name + TEXT(".") + TEXT("ToolTip")));
     auto displayName = uenum->GetMetaData(*(name + TEXT(".") + TEXT("DisplayName")));
     if (!displayName.IsEmpty()) {
@@ -900,6 +889,14 @@ bool FHaxeGenerator::generateEnum(const EnumDescriptor *inEnum) {
   return true;
 }
 
+static void addRef(UProperty *inProp, FString &outString) {
+  if (inProp->IsA<UNumericProperty>() || inProp->IsA<UEnumProperty>() || inProp->IsA<UObjectProperty>() || inProp->IsA<UBoolProperty>()) {
+    outString += TEXT("unreal.Ref");
+  } else {
+    outString += TEXT("unreal.PRef");
+  }
+}
+
 bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp, FString &outType) {
   if (inProp->ArrayDim > 1) {
     // TODO: support array dimensions (e.g. SomeType SomeProp[8])
@@ -914,7 +911,8 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
       end += TEXT(">");
     }
     if (inProp->HasAnyPropertyFlags(CPF_ReferenceParm)) {
-      outType += TEXT("unreal.PRef<");
+      addRef(inProp, outType);
+      outType += TEXT("<");
       end += TEXT(">");
     }
   } else {
@@ -930,7 +928,8 @@ bool FHaxeGenerator::writeWithModifiers(const FString &inName, UProperty *inProp
         // we don't support UObject*& for now
         return false;
       }
-      outType += TEXT("unreal.PRef<");
+      addRef(inProp, outType);
+      outType += TEXT("<");
       end += TEXT(">");
     }
   }
@@ -1053,7 +1052,6 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       return false;
     }
     return true;
-#if UE_VER >= 416
   } else if (inProp->IsA<UEnumProperty>()) {
     auto enumProp = Cast<UEnumProperty>(inProp);
     UEnum *uenum = enumProp->GetEnum();
@@ -1062,7 +1060,6 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       return false;
     }
     return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
-#endif
   } else if (inProp->IsA<UBoolProperty>()) {
     return writeBasicWithModifiers(TEXT("Bool"), inProp, outType);
     return true;
@@ -1092,6 +1089,21 @@ bool FHaxeGenerator::upropType(UProperty* inProp, FString &outType) {
       return writeWithModifiers(descr->haxeType.toString(), inProp, outType);
     }
     return false;
+  } else if (inProp->IsA<UMapProperty>()) {
+    auto prop = Cast<UMapProperty>(inProp);
+    FString keyProp;
+    FString valProp;
+    if (!upropType(prop->KeyProp, keyProp) || !upropType(prop->ValueProp, valProp))
+      return false;
+    return canBuildTArrayProp(keyProp, prop->KeyProp) && canBuildTArrayProp(valProp, prop->ValueProp) &&
+      writeWithModifiers(TEXT("unreal.TMap<") + keyProp + TEXT(", ") + valProp + TEXT(">"), inProp, outType);
+  } else if (inProp->IsA<USetProperty>()) {
+    auto prop = Cast<USetProperty>(inProp);
+    FString element;
+    if (!upropType(prop->ElementProp, element))
+      return false;
+    return canBuildTArrayProp(element, prop->ElementProp) &&
+      writeWithModifiers(TEXT("unreal.TSet<") + element + TEXT(">"), inProp, outType);
   }
   // TODO:
   // TLazyObjectPtr
